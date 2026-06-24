@@ -48,12 +48,18 @@ def main() -> int:
     ok &= check('LEADER_INDEX_URL = "https://theme.okbbc.com/api/latest"' in config_source, "upstream source is theme /api/latest")
     ok &= check("themes[].stock_leaders" not in leader_source, "ingest does not expand from stock_leaders")
     ok &= check("ETFResearchReport" in leader_source, "ETF report prompt schema is wired")
-    ok &= check("valuation_model_type" in leader_source and "model_specific_inputs" in leader_source, "type-aware ETF valuation prompts are wired")
+    ok &= check("valuation_model_type" in leader_source and "model_specific_inputs" in leader_source, "type-aware ETF research prompts are wired")
+    ok &= check("task_type 固定为 research" in leader_source, "ETF queue uses unified research task type")
+    ok &= check(
+        "build_profile_prompt" not in leader_source and "build_valuation_prompt" not in leader_source,
+        "legacy profile/valuation prompt builders are removed",
+    )
     ok &= check((ROOT / "core" / "valuation" / "classification.py").exists(), "ETF valuation classification layer exists")
     queue_prompt_doc = ROOT / "docs" / "QUEUE_PROMPTS.md"
     queue_script = (ROOT / "scripts" / "generate_single_etf_prompt.py").read_text(encoding="utf-8")
     ok &= check(queue_prompt_doc.exists(), "ETF queue prompt contract is documented")
     ok &= check("队列任务元数据" in queue_script and "run_id" in queue_script, "queue prompt output includes traceable metadata")
+    ok &= check('"research"' in queue_script and '"profile"' not in queue_script and '"valuation"' not in queue_script, "queue script exposes only research task type")
     docs = (ROOT / "docs" / "DATA_SOURCES.md").read_text(encoding="utf-8")
     ok &= check("fund_basic" in docs and "fund_portfolio" in docs, "ETF data sources are documented")
     ok &= check("现金替代" in docs, "cash-like ETF boundary is documented")

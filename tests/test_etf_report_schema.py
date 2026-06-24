@@ -11,13 +11,13 @@ def base_report() -> dict:
         "etf_code": "510300.SH",
         "etf_name": "沪深300ETF",
         "source_report_id": "manual",
-        "task_type": "valuation",
+        "task_type": "research",
         "research_date": "2026-06-24",
         "status": "complete",
         "valuation_model_type": "broad_index",
         "sleeve_key": "core_wide_etf",
-        "title": "沪深300ETF估值刷新",
-        "summary": "估值刷新。",
+        "title": "沪深300ETF完整深研",
+        "summary": "完整深研。",
         "product_profile": {
             "fund_type": "ETF",
             "tracking_index": "沪深300",
@@ -90,21 +90,26 @@ def base_report() -> dict:
 
 
 class ETFReportSchemaTests(unittest.TestCase):
-    def test_valuation_report_accepts_complete_reference_range(self) -> None:
+    def test_research_report_accepts_complete_reference_range(self) -> None:
         report = validate_etf_research_report(base_report())
         self.assertEqual(report.etf_code, "510300.SH")
-        self.assertEqual(report.task_type, "valuation")
+        self.assertEqual(report.task_type, "research")
 
-    def test_profile_report_must_not_write_reference_range(self) -> None:
+    def test_research_report_requires_complete_reference_range(self) -> None:
         payload = base_report()
-        payload["task_type"] = "profile"
         payload["valuation"]["reference_value_low"] = None
         payload["valuation"]["reference_value_mid"] = None
         payload["valuation"]["reference_value_high"] = None
         payload["base_position_view"] = "观察"
         payload["conclusion"]["grade"] = "观察"
-        report = validate_etf_research_report(payload)
-        self.assertEqual(report.task_type, "profile")
+        with self.assertRaises(ValueError):
+            validate_etf_research_report(payload)
+
+    def test_legacy_task_type_is_rejected(self) -> None:
+        payload = base_report()
+        payload["task_type"] = "valuation"
+        with self.assertRaises(ValueError):
+            validate_etf_research_report(payload)
 
     def test_grade_must_match_base_position_view(self) -> None:
         payload = base_report()

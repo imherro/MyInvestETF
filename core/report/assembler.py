@@ -172,7 +172,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
     etf_code = _safe_str(input_data.get("etf_code") or input_data.get("code"), "000000.SH")
     etf_name = _safe_str(input_data.get("etf_name") or input_data.get("name"), etf_code)
     research_date = _safe_str(input_data.get("research_date"), "1970-01-01")
-    task_type = _safe_str(input_data.get("task_type"), "valuation")
+    task_type = "research"
     run_id = compute_task_run_id(etf_code, task_type, research_date, "etf_research_report.v1")
 
     product_inputs = _as_mapping(input_data.get("product_profile") or input_data.get("product_inputs"))
@@ -281,7 +281,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
         "status": _safe_str(input_data.get("status"), "complete"),
         "valuation_model_type": model_type,
         "sleeve_key": sleeve_key,
-        "title": _safe_str(input_data.get("title"), f"{etf_name}ETF估值刷新"),
+        "title": _safe_str(input_data.get("title"), f"{etf_name}ETF完整深研"),
         "summary": _safe_str(input_data.get("summary"), conclusion.summary),
         "product_profile": {
             "fund_type": _safe_str(product_inputs.get("fund_type"), "ETF"),

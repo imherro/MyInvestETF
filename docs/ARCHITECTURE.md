@@ -19,13 +19,11 @@ MyInvestETF 为单只 ETF 提供研究页面和只读 API，展示：
 flowchart LR
   A["ETF 输入 / 主动研究入口"] --> B["research_queue"]
   B --> C["generate_single_etf_prompt.py"]
-  C --> D0["ETF 类型识别 valuation_model_type / sleeve_key"]
-  D0 --> D1["Codex ETF 产品结构深研 profile"]
-  D0 --> D2["Codex ETF 类型化估值输入 valuation"]
-  D1 --> E["SQLite: etf_research_runs"]
-  D2 --> F["core/report.build_etf_report"]
-  F --> E
-  E --> G["8017 Web ETF 页"]
+  C --> D["Codex ETF 完整深研 research"]
+  D --> E["research assembly_input"]
+  E --> F["core/report.build_etf_report"]
+  F --> G["SQLite: etf_research_runs"]
+  G --> H["8017 Web ETF 页"]
 ```
 
 ## 分层

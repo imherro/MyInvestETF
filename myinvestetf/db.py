@@ -163,7 +163,7 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
                 code TEXT NOT NULL,
                 name TEXT NOT NULL,
                 source_report_id TEXT,
-                task_type TEXT NOT NULL DEFAULT 'combined',
+                task_type TEXT NOT NULL DEFAULT 'research',
                 research_date TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 status TEXT NOT NULL,
@@ -1047,31 +1047,6 @@ def claim_next_queue_item(conn: sqlite3.Connection) -> sqlite3.Row | None:
         """,
         (row["id"],),
     ).fetchone()
-
-
-def has_profile_work(conn: sqlite3.Connection, code: str) -> bool:
-    active_filter, active_params = _active_queue_filter_sql("research_queue")
-    queued = conn.execute(
-        f"""
-        SELECT 1
-        FROM research_queue
-        WHERE code = ? AND task_type = 'profile' AND {active_filter}
-        LIMIT 1
-        """,
-        (code, *active_params),
-    ).fetchone()
-    if queued:
-        return True
-    completed = conn.execute(
-        """
-        SELECT 1
-        FROM etf_research_runs
-        WHERE code = ? AND task_type = 'profile'
-        LIMIT 1
-        """,
-        (code,),
-    ).fetchone()
-    return completed is not None
 
 
 def list_research_runs(conn: sqlite3.Connection, code: str) -> list[sqlite3.Row]:

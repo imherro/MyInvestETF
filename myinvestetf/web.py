@@ -166,10 +166,12 @@ def research_run_to_summary(row: object) -> dict[str, object]:
     }
 
 
-def latest_by_task_type(runs: list[object], task_type: str) -> dict[str, object] | None:
+def latest_research_run(runs: list[object]) -> dict[str, object] | None:
     for row in runs:
-        if row["task_type"] == task_type:
+        if row["task_type"] == "research":
             return research_run_to_summary(row)
+    if runs:
+        return research_run_to_summary(runs[0])
     return None
 
 
@@ -361,7 +363,7 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
             "sleeve_label": "待分类",
             "bucket": "unknown",
             "label": _bucket_label("unknown", kind="valuation"),
-            "explanation": "等待ETF估值刷新入库。",
+            "explanation": "等待ETF完整深研入库。",
         }
     raw = load_json(_row_value(row, "raw_json"), {})
     valuation = raw.get("valuation") if isinstance(raw, dict) else {}
@@ -440,8 +442,8 @@ def decision_matrix_summary(
         conclusion = "等待上游或产品结构信号"
         posture = "待确认"
     elif valuation_bucket == "unknown":
-        conclusion = "产品结构已入库，等待ETF估值、流动性和跟踪质量验证"
-        posture = "待估值刷新"
+        conclusion = "等待ETF估值、流动性和跟踪质量验证"
+        posture = "待完整深研"
     elif upstream_bucket == "strong" and valuation_bucket == "high":
         conclusion = "上游/产品信号强，ETF估值与底仓适配较好，可进入底仓候选研究"
         posture = "底仓候选"
@@ -616,7 +618,7 @@ def metric_explanation(label: str, value: object) -> tuple[str, str]:
     if label == "估值安全":
         return (
             "入口估值安全度",
-            f"{score_state(value, kind='valuation_safety')}。分数越高，表示入口筛选看估值越不紧张；最终参考区间以后续ETF估值刷新为准。",
+            f"{score_state(value, kind='valuation_safety')}。分数越高，表示入口筛选看估值越不紧张；最终参考区间以ETF完整深研为准。",
         )
     return ("指标说明", "入口展示指标，用于辅助筛选和跟踪。")
 
@@ -1007,7 +1009,7 @@ def _render_plain_valuation_chart(points: list[dict[str, object]]) -> str:
         <div class="valuation-legend">
           <span><i class="legend-band"></i>保守-乐观区间</span>
           <span><i class="legend-line"></i>参考价值中枢</span>
-          <span><i class="legend-dot"></i>单次估值刷新</span>
+          <span><i class="legend-dot"></i>单次完整深研</span>
         </div>
       </div>
     </section>"""
@@ -1175,7 +1177,7 @@ def _render_kline_valuation_chart(
           <span><i class="legend-kline"></i>近期K线</span>
           <span><i class="legend-band"></i>保守-乐观区间</span>
           <span><i class="legend-line"></i>参考价值中枢</span>
-          <span><i class="legend-dot"></i>估值刷新点</span>
+          <span><i class="legend-dot"></i>完整深研点</span>
         </div>
       </div>
     </section>"""
@@ -1374,9 +1376,7 @@ def render_etf_page(code: str) -> bytes:
     market = load_json(leader["market_json"], {}) if leader is not None else {}
     scores = load_json(leader["scores_json"], {}) if leader is not None else {}
     risk_flags = load_json(leader["risk_flags_json"], []) if leader is not None else []
-    profile_run = next((dict(row) for row in runs if row["task_type"] == "profile"), {})
-    valuation_run = next((dict(row) for row in runs if row["task_type"] == "valuation"), {})
-    latest = valuation_run or profile_run
+    latest = next((dict(row) for row in runs if row["task_type"] == "research"), dict(runs[0]) if runs else {})
     risks = load_json(latest.get("risks_json"), []) if latest else []
     risk_items = "".join(f"<li>{esc(item)}</li>" for item in (risks or risk_flags or []))
     etf_name = (
@@ -1389,7 +1389,7 @@ def render_etf_page(code: str) -> bytes:
     xueqiu_url = leader["xueqiu_url"] if leader is not None else None
     model_info = leader_model_info(leader)
     upstream_signal = upstream_signal_summary(leader)
-    valuation_signal = valuation_signal_summary(valuation_run if valuation_run else None)
+    valuation_signal = valuation_signal_summary(latest if latest else None)
     if valuation_signal.get("valuation_model_type") is None:
         valuation_signal.update(model_info)
     decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
@@ -1451,31 +1451,31 @@ def render_etf_page(code: str) -> bytes:
       <section class="two-col">
         <div class="section-block">
           <h2>产品结构</h2>
-          <p>{esc(profile_run.get('industry_position') or '等待产品结构深研入库。')}</p>
+          <p>{esc(latest.get('industry_position') or '等待ETF完整深研入库。')}</p>
         </div>
         <div class="section-block">
           <h2>持仓披露</h2>
-          <p>{esc(profile_run.get('competition_landscape') or '等待产品结构深研入库。')}</p>
+          <p>{esc(latest.get('competition_landscape') or '等待ETF完整深研入库。')}</p>
         </div>
       </section>
       <section class="two-col">
         <div class="section-block">
           <h2>前十大持仓</h2>
-          <p>{esc(profile_run.get('upstream_downstream') or '等待产品结构深研入库。')}</p>
+          <p>{esc(latest.get('upstream_downstream') or '等待ETF完整深研入库。')}</p>
         </div>
         <div class="section-block">
           <h2>估值与流动性</h2>
-          <p>{esc(valuation_run.get('annual_growth') or '等待ETF估值刷新入库。')}</p>
+          <p>{esc(latest.get('annual_growth') or '等待ETF完整深研入库。')}</p>
         </div>
       </section>
       <section class="two-col">
         <div class="section-block">
           <h2>组合角色</h2>
-          <p>{esc((valuation_run or profile_run).get('multi_bagger_potential') or '等待深研入库。')}</p>
+          <p>{esc(latest.get('multi_bagger_potential') or '等待ETF完整深研入库。')}</p>
         </div>
         <div class="section-block">
           <h2>底仓/工具仓资格</h2>
-          <p>{esc(decision_matrix.get('conclusion') or valuation_run.get('heavy_position_view') or '等待ETF估值刷新入库。')}</p>
+          <p>{esc(decision_matrix.get('conclusion') or latest.get('heavy_position_view') or '等待ETF完整深研入库。')}</p>
         </div>
       </section>
       <section class="section-block">
@@ -1559,39 +1559,36 @@ def api_latest() -> bytes:
         leaders = list_latest_leaders(conn)
         etfs = []
         research_run_count = 0
-        valuation_run_count = 0
+        complete_research_count = 0
         for leader in leaders:
             runs = list_research_runs(conn, leader["code"])
-            valuation_runs_for_etf = valuation_runs(conn, leader["code"])
+            reference_runs_for_etf = valuation_runs(conn, leader["code"])
             research_run_count += len(runs)
-            valuation_run_count += len(valuation_runs_for_etf)
-            profile = latest_by_task_type(runs, "profile")
-            valuation = latest_by_task_type(runs, "valuation")
+            complete_research_count += len(reference_runs_for_etf)
+            latest = latest_research_run(runs)
             leader_summary = leader_to_summary(leader)
             decision_matrix = decision_matrix_summary(
                 leader_summary["upstream_signal"],
-                valuation["valuation_signal"] if valuation else valuation_signal_summary(None),
+                latest["valuation_signal"] if latest else valuation_signal_summary(None),
             )
             etfs.append(
                 {
                     "leader": leader_summary,
                     "research": {
-                        "profile": profile,
-                        "valuation": valuation,
-                        "latest": valuation or profile,
-                        "valuation_history": valuation_history_payload(valuation_runs_for_etf),
+                        "latest": latest,
+                        "reference_value_history": valuation_history_payload(reference_runs_for_etf),
                         "run_count": len(runs),
                     },
                     "decision_matrix": decision_matrix,
                 }
             )
     payload = {
-        "schema_version": "myinvestetf.research.v1",
+        "schema_version": "myinvestetf.research.v2",
         "report": dict(report) if report else None,
         "summary": {
             "etf_count": len(etfs),
             "research_run_count": research_run_count,
-            "valuation_run_count": valuation_run_count,
+            "complete_research_count": complete_research_count,
         },
         "etfs": etfs,
         "constraints": {
@@ -1614,10 +1611,10 @@ def api_etf(code: str) -> bytes:
     for row in queue:
         row["source_label"] = queue_source_label(row.get("source_type"))
     leader_summary = leader_to_summary(leader) if leader else None
-    valuation_row = next((row for row in runs if row.get("task_type") == "valuation"), None)
+    latest = next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)
     decision_matrix = decision_matrix_summary(
         leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
-        valuation_signal_summary(valuation_row) if valuation_row else valuation_signal_summary(None),
+        valuation_signal_summary(latest) if latest else valuation_signal_summary(None),
     )
     return json.dumps(
         {

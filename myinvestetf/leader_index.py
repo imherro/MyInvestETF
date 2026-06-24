@@ -14,7 +14,6 @@ from .config import DB_PATH, LEADER_INDEX_URL, RAW_DATA_DIR
 from .db import (
     QUEUE_SOURCE_REQUEST,
     connect,
-    has_profile_work,
     init_db,
     prune_trackable_report,
     upsert_queue_item,
@@ -114,64 +113,50 @@ ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
 - evidence 是对象数组，每项必须包含 source, date, url, purpose, detail。
 - assumptions 和 data_gaps 都是字符串数组。
 - base_position_view/grade 只能是：不适合底仓、观察、工具仓可用、底仓候选、估值或拥挤暂缓。
-- task_type 只能是 profile 或 valuation；status 只能是 complete、draft、blocked；confidence 只能是 low、medium、high。"""
+- task_type 固定为 research；status 只能是 complete、draft、blocked；confidence 只能是 low、medium、high。"""
 
 
-VALUATION_ASSEMBLY_INPUT_INSTRUCTION = """ETF valuation assembly_input 结构化要求：
-- 你的角色是 ETF 结构化输入构建器，不是最终报告生成器。
+RESEARCH_ASSEMBLY_INPUT_INSTRUCTION = """ETF research assembly_input 结构化要求：
+- 你的角色是 ETF 完整深研输入构建器，不是最终报告计算器。
 - 不要手写最终 ETFResearchReport；最终报告必须由 scripts/build_research_report.py 或 core/report.build_etf_report(...) 生成。
 - 不要临场计算最终参考价值区间、signal、grade 或 report_hash；这些由 deterministic engine 生成。
 - assembly_input 必须是一个 JSON object，至少包含 etf_code, etf_name, source_report_id, task_type, research_date, valuation_model_type, sleeve_key, product_profile, holdings_inputs, valuation_inputs, model_specific_inputs, liquidity_inputs, tracking_inputs, risk_signals, evidence, assumptions, data_gaps。
-- task_type 固定为 valuation；research_date 使用入口 basis_date。
+- task_type 固定为 research；research_date 使用入口 basis_date。
+- product_profile 放 ETF 产品结构、基金类型、跟踪指数、资产类别、费率、规模、流动性、组合角色。
+- holdings_inputs 放 holdings_disclosure_date, top_holdings, concentration_ratio, concentration_note, overlap_note, disclosure_lag_note；必须说明 fund_portfolio 是披露滞后口径，不是实时完整持仓。
 - valuation_inputs 放 ETF 估值输入：current_price, nav/unit_nav, premium_discount, underlying_pe, underlying_pb, valuation_percentile, unit。
 - model_specific_inputs 必须按 valuation_model_type 分类型填写，不能把不同 ETF 类型混用同一套依据。
 - liquidity_inputs 放 ETF 流动性输入：turnover_amount, fund_size, share_change_ratio；fund_share 是份额变化的可用代理。
 - tracking_inputs 放 tracking_error、discount_premium_history_note、index_replication_note 等跟踪质量输入。
-- holdings_inputs 放 holdings_disclosure_date, top_holdings, concentration_ratio, concentration_note, overlap_note, disclosure_lag_note；必须说明 fund_portfolio 是披露滞后口径，不是实时完整持仓。
 - risk_signals 放 liquidity_risk, tracking_risk, concentration_risk, sentiment_risk, invalidation_conditions。
 - 所有来源必须进入 evidence：source, date, url, purpose, detail。
 - 如无法取得官方净申购赎回、长期估值分位、实时完整持仓、组合重叠等字段，必须写入 data_gaps，不得假装已验证。
 - 禁止输出交易指令、现金金额、份额数量或买卖建议。"""
 
 
-MODEL_PROFILE_INSTRUCTIONS = {
-    "broad_index": """宽基 ETF profile 重点：
+MODEL_RESEARCH_INSTRUCTIONS = {
+    "broad_index": """宽基 ETF 完整深研依据：
 - 识别是否适合作为核心宽基底仓，不按主线追强逻辑研究。
-- 必须写清底层指数覆盖范围、指数编制、行业分散度、长期权益 beta、费率和跟踪质量。
-- portfolio_role 应明确为核心宽基候选、宽基工具或不适合核心仓。""",
-    "mainline_theme": """主线 ETF profile 重点：
-- 识别产业 beta 和主题暴露，不把行业主题 ETF 当成长期宽基底仓。
-- 必须写清主线主题、产业链位置、行业集中度、主线生命周期、可能退潮条件。
-- portfolio_role 应明确为主线进攻工具或卫星仓候选。""",
-    "factor_defensive": """红利低波 / 自由现金流 ETF profile 重点：
-- 识别收益型防御属性，不按主线 ETF 的趋势追强逻辑研究。
-- 红利低波重点看股息、低波、行业集中度和分红稳定性；自由现金流重点看现金流质量、ROE/ROIC 和质量因子。
-- portfolio_role 应明确为收益防御仓候选、质量防御工具或观察。""",
-    "cash_like": """现金替代 ETF profile 重点：
-- 短融、日利、货币、现金类 ETF 不做深度估值研究，只做现金替代资格检查。
-- 只检查流动性、折溢价异常、久期风险、信用风险、收益稳定性和申赎便利。
-- portfolio_role 应明确为现金替代或不适合现金替代。""",
-}
-
-
-MODEL_VALUATION_INSTRUCTIONS = {
-    "broad_index": """宽基 ETF valuation 专属依据：
+- 必须写清底层指数覆盖范围、指数编制、行业分散度、长期权益 beta、费率、流动性和跟踪质量。
 - model_specific_inputs 必须包含 equity_risk_premium、roe、market_position_score。
 - valuation_inputs 应优先填底层指数 PE/PB、估值分位、NAV、折溢价。
 - 研究结论关注核心仓适配度、估值安全垫和长期底仓资格。""",
-    "mainline_theme": """主线 ETF valuation 专属依据：
+    "mainline_theme": """主线 ETF 完整深研依据：
+- 识别产业 beta 和主题暴露，不把行业主题 ETF 当成长期宽基底仓。
+- 必须写清主线主题、产业链位置、行业集中度、主线生命周期、可能退潮条件。
 - model_specific_inputs 必须包含 theme_strength、fund_flow_score、crowding_score、valuation_tolerance。
 - 不得把主线 ETF 简化为“便宜/贵”；核心是主线是否有效、估值容错多大、拥挤是否过高。
 - 研究结论关注参与价值、退潮风险和是否应暂缓，不给买卖指令。""",
-    "factor_defensive": """红利低波 / 自由现金流 ETF valuation 专属依据：
+    "factor_defensive": """红利低波 / 自由现金流 ETF 完整深研依据：
+- 识别收益型防御属性，不按主线 ETF 的趋势追强逻辑研究。
+- 红利低波重点看股息、低波、行业集中度和分红稳定性；自由现金流重点看现金流质量、ROE/ROIC 和质量因子。
 - model_specific_inputs 必须包含 dividend_spread、fcf_yield、quality_score、style_opportunity_cost。
-- 红利低波看股息率相对无风险收益的利差、分红稳定性和低波是否仍成立。
-- 自由现金流看 FCF yield、ROE/ROIC、现金流稳定性、盈利质量和质量因子拥挤。
 - 研究结论关注收益型防御仓适配度、风格过热风险和切回进攻仓的机会成本。""",
-    "cash_like": """现金替代 ETF monitor 专属依据：
+    "cash_like": """现金替代 ETF 完整深研依据：
+- 短融、日利、货币、现金类 ETF 只做现金替代资格检查，不判断传统权益估值贵贱。
 - model_specific_inputs 必须包含 duration_risk、credit_risk、yield_stability。
-- 不生成深度 valuation 研究，不判断传统估值贵贱。
-- 只输出现金替代资格检查：可作为现金替代、暂不适合作为现金替代，或数据不足。""",
+- 只检查流动性、折溢价异常、久期风险、信用风险、收益稳定性和申赎便利。
+- 研究结论只能是可作为现金替代、暂不适合作为现金替代，或数据不足。""",
 }
 
 
@@ -244,8 +229,7 @@ def _model_context(item: dict[str, Any]) -> dict[str, str]:
     return {
         "valuation_model_type": model_type,
         "sleeve_key": sleeve_key,
-        "profile_instruction": MODEL_PROFILE_INSTRUCTIONS[model_type],
-        "valuation_instruction": MODEL_VALUATION_INSTRUCTIONS[model_type],
+        "research_instruction": MODEL_RESEARCH_INSTRUCTIONS[model_type],
     }
 
 
@@ -436,14 +420,14 @@ def save_raw_payload(payload: dict[str, Any], report_id: str, raw_dir: Path = RA
     return path
 
 
-def build_profile_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
+def build_research_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
     code = item["code"]
     name = item["name"]
     theme = item.get("theme") or item.get("asset_class") or ""
     model = _model_context(item)
     report_id = report["report_id"]
     basis_date = report.get("basis_date") or ""
-    return f"""在 C:\\Users\\kunpeng\\Documents\\MyInvestETF 中执行 ETF 产品结构深研。
+    return f"""在 C:\\Users\\kunpeng\\Documents\\MyInvestETF 中执行 ETF 完整深研。
 
 唯一研究对象：{code} {name}。
 
@@ -458,12 +442,13 @@ def build_profile_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
 - 只研究这一只 ETF，禁止同时研究其他 ETF。
 - Tushare 是结构化主源，优先使用 fund_basic、fund_daily、fund_nav、fund_share、fund_portfolio 和 index_daily。
 - 网络资料只作为补充证据，必须记录来源和日期。
-- 本任务只做产品结构、指数、持仓、流动性、跟踪和组合角色底稿，不给最终参考价值区间。
+- 本任务一次性完成产品结构、指数、持仓、流动性、跟踪、估值输入、风险和组合角色研究。
 - fund_portfolio 只能作为已披露季报持仓，不得表述为实时完整底仓。
+- 最终参考价值区间、signal、grade、report_hash 和 run_id 必须由 deterministic pipeline 生成，LLM 不得手写。
 - 不输出交易指令、不输出现金金额、不输出份额数量。
 
 类型化研究要求：
-{model['profile_instruction']}
+{model['research_instruction']}
 
 必须覆盖：
 - 产品结构：基金类型、跟踪指数、资产类别、费率、规模和流动性。
@@ -471,75 +456,36 @@ def build_profile_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
 - 底仓逻辑：是否适合作为底仓、工具仓、防守仓、现金替代或卫星仓。
 - 持仓披露：前十大持仓、披露日期、集中度、披露滞后和实时完整持仓缺口。
 - 跟踪质量：跟踪误差、折溢价、流动性和指数复制风险。
+- 估值输入：净值、价格、折溢价、底层指数 PE/PB、估值分位和类型化 model_specific_inputs。
 - 证伪条件：哪些规模、流动性、跟踪、指数估值或持仓变化会推翻当前角色判断。
 
-profile 任务 schema 规则：
-- task_type 必须为 profile。
-- valuation.reference_value_low / reference_value_mid / reference_value_high 必须为 null。
-- valuation.method 写“profile-only”，valuation.confidence 写 low/medium/high。
+执行流程：
+1. 收集 Tushare 和必要网络补充资料，形成 research assembly_input JSON。
+2. 将 assembly_input 写入 temp/assembly_inputs/{code}_research_{basis_date}.json。
+3. 运行 python scripts/build_research_report.py --audit-db data/local/myinvestetf.sqlite temp/assembly_inputs/{code}_research_{basis_date}.json > temp/reports/{code}_research_{basis_date}.json。
+4. 用 python scripts/import_research_run.py temp/reports/{code}_research_{basis_date}.json 入库。
+5. 导入成功后，汇报 run_id、report_hash、audit_log stage 覆盖、verify_run 结果、参考价值区间、data_gaps 和系统生成的主要结论摘要。
 
 {ETF_REPORT_SCHEMA_INSTRUCTION}
 
-完成后将 task_type='profile' 的结构化结果通过 scripts/import_research_run.py 入库。"""
+{RESEARCH_ASSEMBLY_INPUT_INSTRUCTION}
+
+完成后保证 /etfs/{code} 能看到由 deterministic pipeline 生成并入库的完整 ETF 深研结果。"""
 
 
-def build_valuation_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
+def build_requested_research_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
     code = item["code"]
     name = item["name"]
-    theme = item.get("theme") or item.get("asset_class") or ""
     model = _model_context(item)
-    report_id = report["report_id"]
     basis_date = report.get("basis_date") or ""
-    return f"""在 C:\\Users\\kunpeng\\Documents\\MyInvestETF 中执行 ETF 估值刷新输入构建。
-
-唯一研究对象：{code} {name}。
-
-入口信息：
-- report_id：{report_id}
-- basis_date：{basis_date}
-- 主题/资产类别：{theme}
-- valuation_model_type：{model['valuation_model_type']}
-- sleeve_key：{model['sleeve_key']}
-
-前置依赖：
-- 先读取本地 etf_research_runs 中 {code} 的 task_type='profile' 最新记录。
-- 如果产品结构底稿不存在，先停止并把本任务标记为 blocked，不要跳过前置依赖。
-
-硬约束：
-- 只研究这一只 ETF，禁止同时研究其他 ETF。
-- Tushare 是 ETF 净值、行情、份额、持仓披露和指数行情的结构化主源。
-- 本任务可以多次重复执行，用最新净值、折溢价、底层指数估值、份额和流动性数据刷新结论。
-- 本任务只构建 deterministic report 所需的 assembly_input，不直接生成最终 ETFResearchReport。
-- LLM 只能负责搜集、清洗、归一化输入和解释脚本输出；不能重新计算参考价值区间，不能给出新的 grade。
-- 不输出交易指令、不输出现金金额、不输出份额数量。
-
-类型化估值依据：
-{model['valuation_instruction']}
-
-执行流程：
-1. 收集 Tushare 和必要网络补充资料，形成 assembly_input JSON。
-2. 将 assembly_input 写入 temp/assembly_inputs/{code}_valuation_{basis_date}.json。
-3. 运行 python scripts/build_research_report.py --audit-db data/local/myinvestetf.sqlite temp/assembly_inputs/{code}_valuation_{basis_date}.json > temp/reports/{code}_valuation_{basis_date}.json。
-4. 用 python scripts/import_research_run.py temp/reports/{code}_valuation_{basis_date}.json 入库。
-5. 导入成功后，汇报 run_id、report_hash、audit_log stage 覆盖、verify_run 结果和系统生成的主要结论摘要。
-
-{VALUATION_ASSEMBLY_INPUT_INSTRUCTION}
-
-完成后保证 /etfs/{code} 能看到由 deterministic pipeline 生成并入库的参考价值区间历史叠加。"""
-
-
-def build_requested_profile_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
-    code = item["code"]
-    name = item["name"]
-    model = _model_context(item)
-    return f"""在 C:\\Users\\kunpeng\\Documents\\MyInvestETF 中执行 ETF 产品结构深研。
+    return f"""在 C:\\Users\\kunpeng\\Documents\\MyInvestETF 中执行 ETF 完整深研。
 
 唯一研究对象：{code} {name}。
 
 入口信息：
 - 入口来源：用户主动请求 /research?etf={code}
 - report_id：{report["report_id"]}
-- basis_date：{report.get("basis_date")}
+- basis_date：{basis_date}
 - valuation_model_type：{model['valuation_model_type']}
 - sleeve_key：{model['sleeve_key']}
 
@@ -547,45 +493,24 @@ def build_requested_profile_prompt(item: dict[str, Any], report: dict[str, Any])
 - 这只 ETF 不要求出现在 /api/index。
 - 只研究这一只 ETF，禁止同时研究其他 ETF。
 - Tushare 是结构化主源，网络资料只作补充证据。
-- 本任务只做产品结构、指数、持仓、流动性、跟踪和组合角色底稿，不给最终参考价值区间。
+- 本任务一次性完成产品结构、持仓披露、估值输入、类型化模型输入、风险和组合角色研究。
+- 最终 ETFResearchReport 必须由 scripts/build_research_report.py 或 core/report.build_etf_report(...) 生成。
+- LLM 不能重新计算参考价值区间、signal、grade、report_hash 或 run_id。
 - 不输出交易指令、不输出现金金额、不输出份额数量。
 
 类型化研究要求：
-{model['profile_instruction']}
+{model['research_instruction']}
+
+执行流程：
+1. 收集 Tushare 和必要网络补充资料，形成 research assembly_input JSON。
+2. 将 assembly_input 写入 temp/assembly_inputs/{code}_research_{basis_date}.json。
+3. 运行 python scripts/build_research_report.py --audit-db data/local/myinvestetf.sqlite temp/assembly_inputs/{code}_research_{basis_date}.json > temp/reports/{code}_research_{basis_date}.json。
+4. 用 python scripts/import_research_run.py temp/reports/{code}_research_{basis_date}.json 入库。
+5. 导入成功后，汇报 run_id、report_hash、audit_log stage 覆盖、verify_run 结果、参考价值区间、data_gaps 和系统生成的主要结论摘要。
 
 {ETF_REPORT_SCHEMA_INSTRUCTION}
-JSON 必须符合 ETFResearchReport：task_type 为 profile，valuation.reference_value_low/mid/high 均为 null。"""
 
-
-def build_requested_valuation_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
-    code = item["code"]
-    name = item["name"]
-    model = _model_context(item)
-    return f"""在 C:\\Users\\kunpeng\\Documents\\MyInvestETF 中执行 ETF 估值刷新输入构建。
-
-唯一研究对象：{code} {name}。
-
-入口信息：
-- 入口来源：用户主动请求 /research?etf={code}
-- report_id：{report["report_id"]}
-- basis_date：{report.get("basis_date")}
-- valuation_model_type：{model['valuation_model_type']}
-- sleeve_key：{model['sleeve_key']}
-
-前置依赖：
-- 先读取本地 etf_research_runs 中 {code} 的 task_type='profile' 最新记录。
-- 如果产品结构底稿不存在，先停止并把本任务标记为 blocked，不要跳过前置依赖。
-
-硬约束：
-- 这只 ETF 不要求出现在 /api/index。
-- 只研究这一只 ETF，禁止同时研究其他 ETF。
-- 本任务只构建 deterministic report 所需的 assembly_input，不直接生成最终 ETFResearchReport。
-- 不输出交易指令、不输出现金金额、不输出份额数量。
-
-类型化估值依据：
-{model['valuation_instruction']}
-
-{VALUATION_ASSEMBLY_INPUT_INSTRUCTION}"""
+{RESEARCH_ASSEMBLY_INPUT_INSTRUCTION}"""
 
 
 def build_report_explainer_prompt(report_output: dict[str, Any] | str) -> str:
@@ -651,41 +576,23 @@ def enqueue_requested_etf(
                 "valuation_model_type": model_type,
                 "sleeve_key": item["sleeve_key"],
             }
-        if not has_profile_work(conn, etf_code):
-            upsert_queue_item(
-                conn,
-                report_id=report["report_id"],
-                code=etf_code,
-                name=etf_name,
-                priority=900,
-                stage=1,
-                task_type="profile",
-                task_keyword=f"MyInvestETF ETF产品结构深研 {etf_code} {etf_name}",
-                prompt=build_requested_profile_prompt(item, report),
-                depends_on_task_type=None,
-                task_date=basis_date,
-                now=now,
-                source_type=QUEUE_SOURCE_REQUEST,
-                source_detail="/research",
-            )
-            queued.append("profile")
         upsert_queue_item(
             conn,
             report_id=report["report_id"],
             code=etf_code,
             name=etf_name,
             priority=900,
-            stage=2,
-            task_type="valuation",
-            task_keyword=f"MyInvestETF ETF估值刷新 {etf_code} {etf_name}",
-            prompt=build_requested_valuation_prompt(item, report),
-            depends_on_task_type="profile",
+            stage=1,
+            task_type="research",
+            task_keyword=f"MyInvestETF ETF完整深研 {etf_code} {etf_name}",
+            prompt=build_requested_research_prompt(item, report),
+            depends_on_task_type=None,
             task_date=basis_date,
             now=now,
             source_type=QUEUE_SOURCE_REQUEST,
             source_detail="/research",
         )
-        queued.append("valuation")
+        queued.append("research")
         conn.commit()
     return {
         "code": etf_code,
@@ -735,32 +642,17 @@ def ingest_payload(
             upsert_trackable_leader(conn, report_id=report["report_id"], item=item, created_at=now)
             if is_cash_like_etf(item):
                 continue
-            if not has_profile_work(conn, item["code"]):
-                upsert_queue_item(
-                    conn,
-                    report_id=report["report_id"],
-                    code=item["code"],
-                    name=item["name"],
-                    priority=priority,
-                    stage=1,
-                    task_type="profile",
-                    task_keyword=f"MyInvestETF ETF产品结构深研 {item['code']} {item['name']}",
-                    prompt=build_profile_prompt(item, report),
-                    depends_on_task_type=None,
-                    task_date=report.get("basis_date"),
-                    now=now,
-                )
             upsert_queue_item(
                 conn,
                 report_id=report["report_id"],
                 code=item["code"],
                 name=item["name"],
                 priority=priority,
-                stage=2,
-                task_type="valuation",
-                task_keyword=f"MyInvestETF ETF估值刷新 {item['code']} {item['name']}",
-                prompt=build_valuation_prompt(item, report),
-                depends_on_task_type="profile",
+                stage=1,
+                task_type="research",
+                task_keyword=f"MyInvestETF ETF完整深研 {item['code']} {item['name']}",
+                prompt=build_research_prompt(item, report),
+                depends_on_task_type=None,
                 task_date=report.get("basis_date"),
                 now=now,
             )

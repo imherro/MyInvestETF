@@ -15,7 +15,7 @@
 - `etf_code`: ETF 代码，例如 `510300.SH`
 - `etf_name`: ETF 名称
 - `source_report_id`
-- `task_type`: `profile` 或 `valuation`
+- `task_type`: 固定为 `research`
 - `research_date`: `YYYY-MM-DD`
 - `status`: `complete`、`draft` 或 `blocked`
 - `valuation_model_type`: `broad_index`、`mainline_theme`、`factor_defensive` 或 `cash_like`
@@ -34,12 +34,12 @@
 强约束：
 
 - schema 禁止额外字段。
+- `task_type` 只接受 `research`。
 - `report_hash` 如果提供，必须是 64 位小写 sha256 hex。
 - `base_position_view` 必须等于 `conclusion.grade`。
 - 顶层 `valuation_model_type` / `sleeve_key` 必须等于 `product_profile` 内部同名字段。
 - 如果显式提供 `run_id`，必须等于系统计算值。
-- `profile` 不允许写入参考价值区间。
-- `valuation` 必须写入完整参考价值区间，且 `low <= mid <= high`。
+- `research` 必须写入完整参考价值区间，且 `low <= mid <= high`。
 
 ## 任务状态机
 
@@ -69,14 +69,21 @@ BLOCKED -> FAILED
 - `底仓候选`
 - `估值或拥挤暂缓`
 
-## 类型化估值输入
+## Research Assembly Input
 
-`valuation` 任务的 `assembly_input` 必须包含：
+`research` 任务的 `assembly_input` 必须包含：
 
+- `etf_code`, `etf_name`, `source_report_id`, `task_type`, `research_date`
 - `valuation_model_type`
 - `sleeve_key`
+- `product_profile`
+- `holdings_inputs`
 - `valuation_inputs`
 - `model_specific_inputs`
+- `liquidity_inputs`
+- `tracking_inputs`
+- `risk_signals`
+- `evidence`, `assumptions`, `data_gaps`
 
 `model_specific_inputs` 按类型分流：
 
@@ -85,4 +92,4 @@ BLOCKED -> FAILED
 - `factor_defensive`: `dividend_spread`, `fcf_yield`, `quality_score`, `style_opportunity_cost`
 - `cash_like`: `duration_risk`, `credit_risk`, `yield_stability`
 
-现金替代类 ETF 不进入深度研究队列；如生成监控型报告，也只能用于现金替代资格检查。
+现金替代类 ETF 默认不进入深度研究队列；如生成监控型报告，也只能用于现金替代资格检查。

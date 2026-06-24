@@ -32,16 +32,18 @@ http://127.0.0.1:8017
 
 关键字段：
 
-- `schema_version`: `myinvestetf.research.v1`
+- `schema_version`: `myinvestetf.research.v2`
 - `summary.etf_count`
 - `summary.research_run_count`
-- `summary.valuation_run_count`
-- `etfs[].research.profile`
-- `etfs[].research.valuation`
+- `summary.complete_research_count`
 - `etfs[].leader.valuation_model_type`
 - `etfs[].leader.sleeve_key`
-- `etfs[].research.valuation_history`
+- `etfs[].research.latest`
+- `etfs[].research.reference_value_history`
+- `etfs[].research.run_count`
 - `etfs[].decision_matrix`
+
+`research.latest` 是单只 ETF 最新的完整深研结果，不再拆分旧的两阶段任务。
 
 ## `/research?etf={code}`
 
@@ -61,13 +63,12 @@ http://127.0.0.1:8017
 
 队列任务类型：
 
-- `profile`: ETF 产品结构深研
-- `valuation`: ETF 估值刷新
+- `research`: ETF 完整深研
 
 队列策略：
 
 - 只展示当前主线报告的 `trackable_leader` 任务，以及最新一次手动请求的 `manual_request` 任务；历史报告队列保留在数据库中但不作为当前队列输出。
-- `broad_index`、`mainline_theme`、`factor_defensive` 会进入 `profile -> valuation`。
+- `broad_index`、`mainline_theme`、`factor_defensive` 会进入单一 `research` 队列。
 - `cash_like` 不进入深度研究队列，只作为现金替代资格监控对象。
 
 来源字段：
@@ -84,7 +85,7 @@ http://127.0.0.1:8017
 - `leader_summary`: 入口摘要，没有则为 `null`
 - `leader_summary.valuation_model_type`
 - `leader_summary.sleeve_key`
-- `research_runs`: 研究历史
+- `research_runs`: 研究历史，任务类型统一为 `research`
 - `decision_matrix`: 产品信号与 ETF 估值适配矩阵
 - `queue`: 队列状态
 - `trackable_history`: 历史入口记录

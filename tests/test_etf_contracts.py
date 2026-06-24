@@ -17,10 +17,8 @@ from myinvestetf.db import (
 )
 from myinvestetf.config import FOOTER_SCRIPT_URL, STATIC_ASSET_VERSION
 from myinvestetf.leader_index import (
-    build_profile_prompt,
-    build_requested_profile_prompt,
-    build_requested_valuation_prompt,
-    build_valuation_prompt,
+    build_research_prompt,
+    build_requested_research_prompt,
     enqueue_requested_etf,
     ingest_payload,
     primary_items,
@@ -124,21 +122,21 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual({item["code"] for item in items}, {"588200.SH", "512880.SH"})
         self.assertEqual({item["category_key"] for item in items}, {"半导体芯片", "证券金融"})
 
-    def test_profile_prompt_is_single_etf_only(self) -> None:
+    def test_research_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
         item = {"code": "510300.SH", "name": "沪深300ETF", "theme": "宽基"}
-        prompt = build_profile_prompt(item, report)
+        prompt = build_research_prompt(item, report)
         self.assertIn("唯一研究对象：510300.SH 沪深300ETF", prompt)
-        self.assertIn("task_type 必须为 profile", prompt)
+        self.assertIn("task_type 固定为 research", prompt)
         self.assertIn("fund_portfolio 只能作为已披露季报持仓", prompt)
         self.assertIn("valuation_model_type：broad_index", prompt)
         self.assertIn("核心宽基", prompt)
 
-    def test_valuation_prompt_depends_on_profile_and_uses_etf_inputs(self) -> None:
+    def test_research_prompt_builds_complete_assembly_inputs(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
         item = {"code": "510300.SH", "name": "沪深300ETF", "theme": "宽基"}
-        prompt = build_valuation_prompt(item, report)
-        self.assertIn("task_type='profile'", prompt)
+        prompt = build_research_prompt(item, report)
+        self.assertIn("本任务一次性完成产品结构", prompt)
         self.assertIn("fund_share 是份额变化的可用代理", prompt)
         self.assertIn("不要手写最终 ETFResearchReport", prompt)
         self.assertIn("data_gaps", prompt)
@@ -151,29 +149,29 @@ class ETFContractTests(unittest.TestCase):
                 "report_id": "r1",
                 "code": "510300.SH",
                 "name": "沪深300ETF",
-                "task_type": "valuation",
+                "task_type": "research",
                 "task_id": "task_abc",
                 "run_id": "run_abc",
                 "priority": 1,
-                "stage": 2,
-                "depends_on_task_type": "profile",
+                "stage": 1,
+                "depends_on_task_type": "",
                 "source_type": "trackable_leader",
                 "source_detail": "theme.okbbc.com/api/latest",
-                "task_keyword": "MyInvestETF ETF估值刷新 510300.SH 沪深300ETF",
+                "task_keyword": "MyInvestETF ETF完整深研 510300.SH 沪深300ETF",
                 "prompt": "只研究这一只 ETF。",
             }
         )
         self.assertIn("队列任务元数据", text)
         self.assertIn("run_id：run_abc", text)
-        self.assertIn("task_type：valuation", text)
-        self.assertIn("depends_on_task_type：profile", text)
+        self.assertIn("task_type：research", text)
+        self.assertIn("depends_on_task_type：", text)
         self.assertIn("只执行本队列任务元数据对应的一只 ETF、一个 task_type", text)
 
     def test_type_specific_prompts_use_different_investment_bases(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
-        mainline = build_valuation_prompt({"code": "588170.SH", "name": "科创半导体材料设备ETF", "theme": "半导体"}, report)
-        defensive = build_valuation_prompt({"code": "512890.SH", "name": "红利低波ETF", "theme": "红利低波"}, report)
-        cash_like = build_valuation_prompt({"code": "511360.SH", "name": "短融ETF", "theme": "现金替代"}, report)
+        mainline = build_research_prompt({"code": "588170.SH", "name": "科创半导体材料设备ETF", "theme": "半导体"}, report)
+        defensive = build_research_prompt({"code": "512890.SH", "name": "红利低波ETF", "theme": "红利低波"}, report)
+        cash_like = build_research_prompt({"code": "511360.SH", "name": "短融ETF", "theme": "现金替代"}, report)
 
         self.assertIn("valuation_model_type：mainline_theme", mainline)
         self.assertIn("theme_strength", mainline)
@@ -183,7 +181,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("style_opportunity_cost", defensive)
         self.assertIn("valuation_model_type：cash_like", cash_like)
         self.assertIn("duration_risk", cash_like)
-        self.assertIn("不生成深度 valuation 研究", cash_like)
+        self.assertIn("只做现金替代资格检查", cash_like)
 
     def test_requested_etf_enqueue_marks_source(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -191,9 +189,9 @@ class ETFContractTests(unittest.TestCase):
             result = enqueue_requested_etf("510300.SH", name="沪深300ETF", db_path=db_path)
             with closing(connect(db_path)) as conn:
                 rows = list_queue(conn)
-            self.assertEqual(result["queued"], ["profile", "valuation"])
+            self.assertEqual(result["queued"], ["research"])
             self.assertEqual({row["source_type"] for row in rows}, {QUEUE_SOURCE_REQUEST})
-            self.assertEqual([row["task_type"] for row in rows], ["profile", "valuation"])
+            self.assertEqual([row["task_type"] for row in rows], ["research"])
 
     def test_cash_like_requested_etf_does_not_enqueue_deep_research(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -280,8 +278,7 @@ class ETFContractTests(unittest.TestCase):
     def test_requested_prompts_do_not_require_api_index_membership(self) -> None:
         report = {"report_id": "manual_etf_research_request_2026-06-24", "basis_date": "2026-06-24"}
         item = {"code": "510300.SH", "name": "沪深300ETF"}
-        self.assertIn("不要求出现在 /api/index", build_requested_profile_prompt(item, report))
-        self.assertIn("不要求出现在 /api/index", build_requested_valuation_prompt(item, report))
+        self.assertIn("不要求出现在 /api/index", build_requested_research_prompt(item, report))
 
     def test_layout_uses_footer_and_etf_brand(self) -> None:
         page = render_layout("title", "<p>body</p>").decode("utf-8")
@@ -307,25 +304,15 @@ class ETFContractTests(unittest.TestCase):
                 "source_type": "trackable_leader",
                 "code": "588170.SH",
                 "name": "华夏上证科创板半导体材料设备主题ETF",
-                "task_type": "profile",
+                "task_type": "research",
                 "status": "pending",
-                "task_keyword": "profile keyword",
-            },
-            {
-                "priority": 1,
-                "stage": 2,
-                "source_type": "trackable_leader",
-                "code": "588170.SH",
-                "name": "华夏上证科创板半导体材料设备主题ETF",
-                "task_type": "valuation",
-                "status": "pending",
-                "task_keyword": "valuation keyword",
+                "task_keyword": "research keyword",
             },
         ]
         html = render_queue_rows(rows)
         self.assertEqual(html.count("<tr>"), 1)
-        self.assertIn("profile:pending / valuation:pending", html)
-        self.assertIn("profile keyword；valuation keyword", html)
+        self.assertIn("research:pending", html)
+        self.assertIn("research keyword", html)
 
     def test_leader_summary_links_to_etf_routes(self) -> None:
         row = {

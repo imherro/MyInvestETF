@@ -13,7 +13,7 @@ ETF_CODE_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
-TaskType = Literal["profile", "valuation"]
+TaskType = Literal["research"]
 RunStatus = Literal["complete", "draft", "blocked"]
 Confidence = Literal["low", "medium", "high"]
 BasePositionView = Literal["不适合底仓", "观察", "工具仓可用", "底仓候选", "估值或拥挤暂缓"]
@@ -153,10 +153,8 @@ class ETFResearchReport(StrictSchemaModel):
             self.valuation.reference_value_high,
         )
         has_range = all(value is not None for value in values)
-        if self.task_type == "profile" and has_range:
-            raise ValueError("profile research must not write reference value range")
-        if self.task_type == "valuation" and not has_range:
-            raise ValueError("valuation research must include a complete reference value range")
+        if not has_range:
+            raise ValueError("ETF research must include a complete reference value range")
 
         expected_run_id = compute_task_run_id(self.etf_code, self.task_type, self.research_date, self.schema_version)
         if self.run_id is None:

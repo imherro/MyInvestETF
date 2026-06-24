@@ -10,7 +10,7 @@ ASSEMBLY_INPUT = {
     "etf_code": "510300.SH",
     "etf_name": "沪深300ETF",
     "source_report_id": "manual",
-    "task_type": "valuation",
+    "task_type": "research",
     "valuation_model_type": "broad_index",
     "sleeve_key": "core_wide_etf",
     "research_date": "2026-06-24",
