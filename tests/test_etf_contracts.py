@@ -15,6 +15,7 @@ from myinvestetf.db import (
     upsert_report,
     upsert_trackable_leader,
 )
+from myinvestetf.config import FOOTER_SCRIPT_URL, STATIC_ASSET_VERSION
 from myinvestetf.leader_index import (
     build_profile_prompt,
     build_requested_profile_prompt,
@@ -153,7 +154,18 @@ class ETFContractTests(unittest.TestCase):
     def test_layout_uses_footer_and_etf_brand(self) -> None:
         page = render_layout("title", "<p>body</p>").decode("utf-8")
         self.assertIn("MyInvestETF", page)
-        self.assertIn("https://invest.okbbc.com/footer.js", page)
+        self.assertIn(f'<script src="{FOOTER_SCRIPT_URL}" defer></script>', page)
+        self.assertIn(f'/static/styles.css?v={STATIC_ASSET_VERSION}', page)
+
+    def test_layout_exposes_header_navigation_links(self) -> None:
+        page = render_layout("title", "<p>body</p>").decode("utf-8")
+        self.assertIn('<nav class="top-nav">', page)
+        self.assertIn('<a href="/">可跟踪ETF</a>', page)
+        self.assertIn('<a href="/api/queue">研究队列</a>', page)
+        self.assertIn('<a href="/api/index">主结果API</a>', page)
+        self.assertIn('<a href="/api/latest">研究成果API</a>', page)
+        self.assertIn('href="https://theme.okbbc.com/api/latest"', page)
+        self.assertIn('target="_blank" rel="noopener noreferrer">上游主线</a>', page)
 
     def test_leader_summary_links_to_etf_routes(self) -> None:
         row = {

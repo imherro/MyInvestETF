@@ -152,6 +152,9 @@ def render_layout(title: str, body: str) -> bytes:
     <nav class="top-nav">
       <a href="/">可跟踪ETF</a>
       <a href="/api/queue">研究队列</a>
+      <a href="/api/index">主结果API</a>
+      <a href="/api/latest">研究成果API</a>
+      <a href="https://theme.okbbc.com/api/latest" target="_blank" rel="noopener noreferrer">上游主线</a>
     </nav>
   </header>
   <main>
