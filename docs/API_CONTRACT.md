@@ -14,6 +14,8 @@ http://127.0.0.1:8017
 
 - `schema_version`: `myinvestetf.index.v1`
 - `key_results.primary_output.items`: 当前 ETF 列表
+- `source.upstream_endpoint`: 默认 `https://theme.okbbc.com/api/latest`
+- `source.upstream_result_path`: 默认 `result.etf_top`，兼容旧 `key_results.primary_output.items`
 - `links.latest`: `/api/latest`
 - `constraints.read_only`: `true`
 - `constraints.contains_trade_orders`: `false`

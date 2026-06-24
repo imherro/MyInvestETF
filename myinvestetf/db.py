@@ -734,7 +734,11 @@ def latest_report(conn: sqlite3.Connection) -> sqlite3.Row | None:
         """
         SELECT *
         FROM leader_reports
-        WHERE COALESCE(schema_version, '') != 'manual_research_request.v1'
+        WHERE COALESCE(schema_version, '') NOT IN (
+            'manual_research_request.v1',
+            'manual_etf_research_request.v1'
+        )
+        AND COALESCE(source_url, '') NOT LIKE '/research?%'
         ORDER BY COALESCE(generated_at, fetched_at) DESC, fetched_at DESC
         LIMIT 1
         """
@@ -819,7 +823,11 @@ def list_price_refresh_subjects(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             WITH latest_report_id AS (
                 SELECT report_id
                 FROM leader_reports
-                WHERE COALESCE(schema_version, '') != 'manual_research_request.v1'
+                WHERE COALESCE(schema_version, '') NOT IN (
+                    'manual_research_request.v1',
+                    'manual_etf_research_request.v1'
+                )
+                AND COALESCE(source_url, '') NOT LIKE '/research?%'
                 ORDER BY COALESCE(generated_at, fetched_at) DESC, fetched_at DESC
                 LIMIT 1
             ),

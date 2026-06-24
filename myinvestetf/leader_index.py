@@ -87,20 +87,100 @@ def fetch_index(url: str = LEADER_INDEX_URL, timeout: int = 30) -> dict[str, Any
     return json.loads(data)
 
 
-def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _xueqiu_url(code: str) -> str:
+    symbol, exchange = code.split(".", 1)
+    return f"https://xueqiu.com/S/{exchange.upper()}{symbol}"
+
+
+def _score_rating(score: object) -> str:
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return ""
+    if value >= 90.0:
+        return "A"
+    if value >= 80.0:
+        return "B"
+    if value >= 70.0:
+        return "C"
+    return "Watch"
+
+
+def _normalize_theme_latest_item(item: dict[str, Any]) -> dict[str, Any]:
+    code = str(item.get("code") or item.get("ts_code") or "")
+    name = str(item.get("name") or item.get("fund_name") or "")
+    score = item.get("score")
+    normalized = dict(item)
+    normalized.update(
+        {
+            "code": code,
+            "name": name,
+            "xueqiu_url": item.get("xueqiu_url") or (_xueqiu_url(code) if ETF_CODE_RE.match(code) else None),
+            "theme": item.get("theme") or "主线ETF",
+            "themes": item.get("themes") or ["主线ETF"],
+            "deep_rating": item.get("deep_rating") or _score_rating(score),
+            "deep_label": item.get("deep_label") or "可跟踪主线ETF",
+            "deep_score": item.get("deep_score") or score,
+            "shadow_observation_eligible": item.get("shadow_observation_eligible", True),
+            "candidate_leader_tier": item.get("candidate_leader_tier") or "ETF工具",
+            "candidate_leader_claim": item.get("candidate_leader_claim") or "来自 theme.okbbc.com 主线 ETF 强度池",
+            "candidate_evidence_score": item.get("candidate_evidence_score") or score,
+            "candidate_evidence_count": item.get("candidate_evidence_count") or 4,
+            "candidate_hard_evidence_count": item.get("candidate_hard_evidence_count") or 4,
+            "market": item.get("market")
+            or {
+                "r1": item.get("r1"),
+                "r5": item.get("r5"),
+                "r20": item.get("r20"),
+                "amount": item.get("amount"),
+            },
+            "scores": item.get("scores")
+            or {
+                "mainline_strength": score,
+                "theme_binding": score,
+                "evidence_quality": score,
+                "trading_structure": item.get("amount_rank"),
+                "r1_rank": item.get("r1_rank"),
+                "r5_rank": item.get("r5_rank"),
+                "r20_rank": item.get("r20_rank"),
+                "amount_rank": item.get("amount_rank"),
+            },
+            "risk_flags": item.get("risk_flags") or [],
+            "data_gaps": item.get("data_gaps") or ["theme.okbbc.com/api/latest 不提供 ETF 净值、折溢价、份额变化和完整持仓披露。"],
+        }
+    )
+    return normalized
+
+
+def _raw_primary_items(payload: dict[str, Any]) -> tuple[list[Any], str]:
     key_results = payload.get("key_results") or {}
     primary = key_results.get("primary_output") or {}
-    items = primary.get("items") or []
-    if not isinstance(items, list):
-        raise ValueError("key_results.primary_output.items is not a list")
+    if "items" in primary:
+        items = primary.get("items") or []
+        if not isinstance(items, list):
+            raise ValueError("key_results.primary_output.items is not a list")
+        return items, "key_results.primary_output.items"
+
+    result = payload.get("result") or {}
+    if isinstance(result, dict) and "etf_top" in result:
+        items = result.get("etf_top") or []
+        if not isinstance(items, list):
+            raise ValueError("result.etf_top is not a list")
+        return items, "result.etf_top"
+
+    return [], "unknown"
+
+
+def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items, source_path = _raw_primary_items(payload)
     clean_items: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        code = str(item.get("code") or item.get("ts_code") or "")
-        name = str(item.get("name") or item.get("fund_name") or "")
+        normalized = _normalize_theme_latest_item(item) if source_path == "result.etf_top" else dict(item)
+        code = str(normalized.get("code") or normalized.get("ts_code") or "")
+        name = str(normalized.get("name") or normalized.get("fund_name") or "")
         if ETF_CODE_RE.match(code) and name:
-            normalized = dict(item)
             normalized["code"] = code
             normalized["name"] = name
             clean_items.append(normalized)
@@ -109,15 +189,17 @@ def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def report_meta(payload: dict[str, Any]) -> dict[str, Any]:
     report = payload.get("report") or {}
+    result = payload.get("result") or {}
+    result = result if isinstance(result, dict) else {}
     report_id = report.get("report_id") or payload.get("report_id")
     if not report_id:
         raise ValueError("Missing report.report_id")
     return {
         "report_id": report_id,
-        "schema_version": report.get("schema_version"),
-        "generated_at": report.get("generated_at"),
-        "basis_date": report.get("basis_date"),
-        "theme_report_id": report.get("theme_report_id"),
+        "schema_version": report.get("schema_version") or result.get("schema_version"),
+        "generated_at": report.get("generated_at") or result.get("generated_at_iso") or result.get("generated_at"),
+        "basis_date": report.get("basis_date") or result.get("basis_date"),
+        "theme_report_id": report.get("theme_report_id") or result.get("theme_report_id"),
     }
 
 

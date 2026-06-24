@@ -9,6 +9,8 @@ from myinvestetf.db import (
     QUEUE_SOURCE_REQUEST,
     connect,
     init_db,
+    latest_report,
+    list_latest_leaders,
     list_queue,
     upsert_report,
     upsert_trackable_leader,
@@ -47,6 +49,34 @@ class ETFContractTests(unittest.TestCase):
         items = primary_items(payload)
         self.assertEqual([item["code"] for item in items], ["510300.SH"])
 
+    def test_primary_items_reads_theme_latest_etf_top(self) -> None:
+        payload = {
+            "report_id": "mainline_review_2026-06-23_173855",
+            "result": {
+                "generated_at_iso": "2026-06-23T17:38:55+08:00",
+                "basis_date": "2026-06-23",
+                "etf_top": [
+                    {
+                        "ts_code": "588170.SH",
+                        "name": "华夏上证科创板半导体材料设备主题ETF",
+                        "r1": 0.37,
+                        "r5": 15.214286,
+                        "r20": 18.733898,
+                        "amount": 3613825.102,
+                        "score": 98.751705,
+                    },
+                    {"ts_code": "bad", "name": "bad"},
+                ],
+            },
+        }
+        meta = report_meta(payload)
+        items = primary_items(payload)
+        self.assertEqual(meta["report_id"], "mainline_review_2026-06-23_173855")
+        self.assertEqual(meta["basis_date"], "2026-06-23")
+        self.assertEqual([item["code"] for item in items], ["588170.SH"])
+        self.assertEqual(items[0]["deep_label"], "可跟踪主线ETF")
+        self.assertEqual(items[0]["scores"]["mainline_strength"], 98.751705)
+
     def test_profile_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
         item = {"code": "510300.SH", "name": "沪深300ETF", "theme": "宽基"}
@@ -73,6 +103,46 @@ class ETFContractTests(unittest.TestCase):
             self.assertEqual(result["queued"], ["profile", "valuation"])
             self.assertEqual({row["source_type"] for row in rows}, {QUEUE_SOURCE_REQUEST})
             self.assertEqual([row["task_type"] for row in rows], ["profile", "valuation"])
+
+    def test_latest_report_ignores_manual_etf_requests(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "latest.sqlite"
+            init_db(db_path)
+            with closing(connect(db_path)) as conn:
+                upsert_report(
+                    conn,
+                    report_id="mainline_r1",
+                    schema_version=None,
+                    generated_at="2026-06-23T17:38:55+08:00",
+                    basis_date="2026-06-23",
+                    theme_report_id=None,
+                    source_url="https://theme.okbbc.com/api/latest",
+                    fetched_at="2026-06-24T07:15:49+00:00",
+                    raw_path=None,
+                )
+                upsert_trackable_leader(
+                    conn,
+                    report_id="mainline_r1",
+                    item={"code": "588170.SH", "name": "半导体材料设备ETF", "deep_score": 98.0},
+                    created_at="2026-06-24T07:15:49+00:00",
+                )
+                upsert_report(
+                    conn,
+                    report_id="manual_etf_research_request_2026-06-24",
+                    schema_version="manual_etf_research_request.v1",
+                    generated_at="2026-06-24T15:02:47",
+                    basis_date="2026-06-24",
+                    theme_report_id=None,
+                    source_url="/research?etf=510300.SH",
+                    fetched_at="2026-06-24T07:02:47+00:00",
+                    raw_path=None,
+                )
+                conn.commit()
+
+                report = latest_report(conn)
+                leaders = list_latest_leaders(conn)
+            self.assertEqual(report["report_id"], "mainline_r1")
+            self.assertEqual([row["code"] for row in leaders], ["588170.SH"])
 
     def test_requested_prompts_do_not_require_api_index_membership(self) -> None:
         report = {"report_id": "manual_etf_research_request_2026-06-24", "basis_date": "2026-06-24"}

@@ -115,6 +115,7 @@ LLM 负责：
 
 ## 数据原则
 
+- 可跟踪 ETF 默认入口为 `https://theme.okbbc.com/api/latest` 的 `result.etf_top`，并兼容旧 `key_results.primary_output.items` 结构。
 - Tushare 是 ETF 结构化主源，通过本地 `.env` 读取 token。
 - 优先接口：`fund_basic`、`fund_daily`、`fund_nav`、`fund_share`、`fund_portfolio`、`index_daily`。
 - 网络资料只作为补充证据，必须记录来源、日期和用途。
@@ -170,6 +171,12 @@ python scripts/build_research_report.py path\to\assembly_input.json
 
 ```powershell
 python scripts/project_check.py
+```
+
+更新可跟踪 ETF 数据：
+
+```powershell
+python scripts/ingest_index.py
 ```
 
 运行测试：

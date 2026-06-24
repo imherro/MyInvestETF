@@ -15,6 +15,7 @@ ETF 深研必须一次只研究一只 ETF。研究分为两类：
 
 规则：
 
+- 默认读取 `https://theme.okbbc.com/api/latest` 的 `result.etf_top`，并兼容旧 `/api/index` 结构。
 - 每只 ETF 如果没有 `profile` 底稿，生成一条产品结构深研任务。
 - 每次进入输入源时都可以生成 `valuation` 估值刷新任务。
 - 本任务只做入队和状态汇总，不领取研究任务。

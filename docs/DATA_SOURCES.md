@@ -2,6 +2,7 @@
 
 ## 结构化 ETF 数据
 
+- theme.okbbc.com：可跟踪主线 ETF 默认入口，读取 `https://theme.okbbc.com/api/latest` 的 `result.etf_top`。
 - Tushare：A 股 ETF 结构化主源，使用本地 `.env` 中的 `TUSHARE_TOKEN`。
 - `fund_basic`：基金基础信息。
 - `fund_daily`：ETF 日行情。

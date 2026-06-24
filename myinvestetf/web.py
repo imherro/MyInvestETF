@@ -210,11 +210,11 @@ def _bucket_label(bucket: str, *, kind: str) -> str:
 def upstream_signal_summary(row: object | None) -> dict[str, object]:
     if row is None:
         return {
-            "source": "MyInvestLeader /api/index",
+            "source": "theme.okbbc.com/api/latest",
             "theme": None,
             "bucket": "unknown",
             "label": _bucket_label("unknown", kind="upstream"),
-            "explanation": "未找到 MyInvestLeader 入库信号。",
+            "explanation": "未找到主线主题接口入库信号。",
         }
     scores_value = load_json(row["scores_json"], {})
     market_value = load_json(row["market_json"], {})
@@ -236,12 +236,12 @@ def upstream_signal_summary(row: object | None) -> dict[str, object]:
     label = _bucket_label(bucket, kind="upstream")
     parts = [
         f"主题绑定 {fmt_num(theme_binding)}",
-        f"龙头深研 {fmt_num(leader_score)}",
+        f"主线强度 {fmt_num(leader_score)}",
         f"证据质量 {fmt_num(evidence_quality)}",
         f"交易结构 {fmt_num(trading_structure)}",
     ]
     return {
-        "source": "MyInvestLeader /api/index",
+        "source": "theme.okbbc.com/api/latest",
         "theme": row["theme"],
         "themes": themes,
         "bucket": bucket,
@@ -348,7 +348,7 @@ def decision_matrix_summary(
         "valuation_label": valuation_signal.get("label"),
         "posture": posture,
         "conclusion": conclusion,
-        "rule": "MyInvestLeader upstream signal + MyInvestETF valuation safety margin matrix",
+        "rule": "theme.okbbc.com upstream signal + MyInvestETF valuation safety margin matrix",
     }
 
 
@@ -622,7 +622,7 @@ def render_home() -> bytes:
         <div class="page-title-row">
           <div>
             <h1>可跟踪ETF</h1>
-            <p class="muted">入口固定为 <code>/api/index</code> 的 <code>key_results.primary_output.items</code>。</p>
+            <p class="muted">上游默认来自 <code>theme.okbbc.com/api/latest</code> 的 <code>result.etf_top</code>，并兼容旧 <code>/api/index</code> 结构。</p>
           </div>
           <div class="report-box">
             <span>report_id</span>
@@ -1082,16 +1082,16 @@ def render_signal_matrix(
         <div class="signal-matrix">
           <div class="signal-panel signal-panel-upstream">
             <h3>上游主线信号</h3>
-            <p class="muted">来自 MyInvestLeader，不在本项目重复研究主线。</p>
+            <p class="muted">来自 theme.okbbc.com 主线主题接口，不在本项目重复研究主线。</p>
             <div class="signal-grid">
               {signal_item("所属主题", upstream_signal.get("theme"))}
               {signal_item("主线状态", upstream_signal.get("label"), upstream_signal.get("rating"))}
               {signal_item("主题绑定", fmt_num(upstream_signal.get("theme_binding")))}
-              {signal_item("龙头深研", fmt_num(upstream_signal.get("leader_score")))}
+              {signal_item("主线强度", fmt_num(upstream_signal.get("leader_score")))}
               {signal_item("证据质量", fmt_num(upstream_signal.get("evidence_quality")))}
               {signal_item("交易结构", fmt_num(upstream_signal.get("trading_structure")))}
             </div>
-            <p class="signal-note">龙头证据：{esc(upstream_signal.get("leader_claim") or "待入库")}</p>
+            <p class="signal-note">主线证据：{esc(upstream_signal.get("leader_claim") or "待入库")}</p>
             <p class="signal-note">上游风险：{esc(risk_text)}</p>
           </div>
           <div class="signal-panel signal-panel-valuation">
@@ -1335,8 +1335,9 @@ def api_index() -> bytes:
         },
         "source": {
             "upstream_endpoint": LEADER_INDEX_URL,
-            "upstream_result_path": "key_results.primary_output.items",
-            "source_policy": "only A trackable leaders; do not expand from upstream /api/latest themes[].etf_leaders",
+            "upstream_result_path": "result.etf_top",
+            "compatible_result_path": "key_results.primary_output.items",
+            "source_policy": "default to theme.okbbc.com/api/latest result.etf_top; compatible with legacy /api/index items",
         },
         "report": dict(report) if report else None,
         "key_results": {

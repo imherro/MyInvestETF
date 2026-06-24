@@ -15,7 +15,7 @@ from myinvestetf.leader_index import fetch_index, ingest_payload, report_meta, s
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ingest A trackable leaders from /api/index.")
+    parser = argparse.ArgumentParser(description="Ingest trackable ETFs from theme.okbbc.com/api/latest or compatible /api/index payloads.")
     parser.add_argument("--url", default=LEADER_INDEX_URL)
     parser.add_argument("--skip-raw", action="store_true")
     args = parser.parse_args()

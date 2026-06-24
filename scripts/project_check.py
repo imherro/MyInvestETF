@@ -45,7 +45,7 @@ def main() -> int:
     config_source = (ROOT / "myinvestetf" / "config.py").read_text(encoding="utf-8")
     leader_source = (ROOT / "myinvestetf" / "leader_index.py").read_text(encoding="utf-8")
     ok &= check("https://invest.okbbc.com/footer.js" in config_source, "unified footer script is wired")
-    ok &= check('LEADER_INDEX_URL = "https://leader.okbbc.com/api/index"' in config_source, "upstream source is /api/index")
+    ok &= check('LEADER_INDEX_URL = "https://theme.okbbc.com/api/latest"' in config_source, "upstream source is theme /api/latest")
     ok &= check("themes[].stock_leaders" not in leader_source, "ingest does not expand from stock_leaders")
     ok &= check("ETFResearchReport" in leader_source, "ETF report prompt schema is wired")
     docs = (ROOT / "docs" / "DATA_SOURCES.md").read_text(encoding="utf-8")
