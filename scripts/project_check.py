@@ -48,8 +48,11 @@ def main() -> int:
     ok &= check('LEADER_INDEX_URL = "https://theme.okbbc.com/api/latest"' in config_source, "upstream source is theme /api/latest")
     ok &= check("themes[].stock_leaders" not in leader_source, "ingest does not expand from stock_leaders")
     ok &= check("ETFResearchReport" in leader_source, "ETF report prompt schema is wired")
+    ok &= check("valuation_model_type" in leader_source and "model_specific_inputs" in leader_source, "type-aware ETF valuation prompts are wired")
+    ok &= check((ROOT / "core" / "valuation" / "classification.py").exists(), "ETF valuation classification layer exists")
     docs = (ROOT / "docs" / "DATA_SOURCES.md").read_text(encoding="utf-8")
     ok &= check("fund_basic" in docs and "fund_portfolio" in docs, "ETF data sources are documented")
+    ok &= check("现金替代" in docs, "cash-like ETF boundary is documented")
     return 0 if ok else 1
 
 

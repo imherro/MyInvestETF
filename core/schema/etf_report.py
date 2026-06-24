@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictStr, model_validator
 
 from core.task.state import compute_task_run_id
+from core.valuation.classification import SleeveKey, ValuationModelType
 
 
 ETF_CODE_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
@@ -38,6 +39,8 @@ class ETFProductProfile(StrictSchemaModel):
     fund_type: StrictStr
     tracking_index: StrictStr | None = None
     asset_class: StrictStr
+    valuation_model_type: ValuationModelType
+    sleeve_key: SleeveKey
     portfolio_role: StrictStr
     fee_note: StrictStr
     liquidity_note: StrictStr
@@ -72,6 +75,11 @@ class ETFValuation(StrictSchemaModel):
     tracking_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
     portfolio_role_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
     risk_adjusted_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    mainline_validity_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    valuation_tolerance_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    crowding_risk_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    factor_premium_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    cash_like_safety_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
 
     @model_validator(mode="after")
     def validate_range_order(self) -> ETFValuation:
@@ -110,6 +118,8 @@ class ETFResearchReport(StrictSchemaModel):
     task_type: TaskType
     research_date: StrictStr
     status: RunStatus = "complete"
+    valuation_model_type: ValuationModelType
+    sleeve_key: SleeveKey
     title: StrictStr
     summary: StrictStr
     product_profile: ETFProductProfile
@@ -132,6 +142,10 @@ class ETFResearchReport(StrictSchemaModel):
             raise ValueError("report_hash must be a 64-character lowercase sha256 hex digest")
         if self.base_position_view != self.conclusion.grade:
             raise ValueError("base_position_view must equal conclusion.grade")
+        if self.product_profile.valuation_model_type != self.valuation_model_type:
+            raise ValueError("product_profile.valuation_model_type must equal report valuation_model_type")
+        if self.product_profile.sleeve_key != self.sleeve_key:
+            raise ValueError("product_profile.sleeve_key must equal report sleeve_key")
 
         values = (
             self.valuation.reference_value_low,

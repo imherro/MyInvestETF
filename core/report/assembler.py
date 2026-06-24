@@ -15,14 +15,16 @@ from core.valuation import (
     ETFValuationSignal,
     build_etf_signal,
     extract_etf_features,
+    normalize_sleeve_key,
+    normalize_valuation_model_type,
     reference_range_from_inputs,
 )
 
 from .conclusion import build_conclusion
 
 
-REPORT_VERSION = "v1.0.0"
-VALUATION_ENGINE_VERSION = "etf_valuation_engine.v1"
+REPORT_VERSION = "v2.0.0"
+VALUATION_ENGINE_VERSION = "etf_valuation_engine.v2.type-aware"
 
 
 def _safe_float(value: object, default: float = 0.0) -> float:
@@ -103,12 +105,20 @@ def _top_holdings(holdings_inputs: Mapping[str, Any]) -> list[str]:
     return result
 
 
-def _role_score(input_data: Mapping[str, Any]) -> float:
+def _role_score(input_data: Mapping[str, Any], sleeve_key: str = "") -> float:
     role = _safe_str(input_data.get("portfolio_role"), "")
     role_inputs = _as_mapping(input_data.get("role_inputs"))
     explicit = role_inputs.get("base_role_score")
     if explicit is not None:
         return _safe_float(explicit, 60.0)
+    if sleeve_key == "core_wide_etf":
+        return 78.0
+    if sleeve_key == "defensive_quality":
+        return 72.0
+    if sleeve_key == "cash_like":
+        return 80.0
+    if sleeve_key == "mainline_etf":
+        return 58.0
     if any(keyword in role for keyword in ["底仓", "宽基", "现金", "债券"]):
         return 75.0
     if any(keyword in role for keyword in ["行业", "主题", "卫星", "进攻"]):
@@ -168,6 +178,10 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
     product_inputs = _as_mapping(input_data.get("product_profile") or input_data.get("product_inputs"))
     holdings_inputs = _as_mapping(input_data.get("holdings_profile") or input_data.get("holdings_inputs"))
     valuation_inputs = _as_mapping(input_data.get("valuation_inputs") or input_data.get("valuation"))
+    model_hint = input_data.get("valuation_model_type") or product_inputs.get("valuation_model_type")
+    model_type = normalize_valuation_model_type(model_hint, input_data)
+    sleeve_key = normalize_sleeve_key(input_data.get("sleeve_key") or product_inputs.get("sleeve_key"), model_type)
+    model_specific_inputs = _as_mapping(input_data.get("model_specific_inputs"))
     features = extract_etf_features(input_data)
 
     if trace_recorder is not None:
@@ -176,6 +190,8 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             stage="feature",
             input_payload={
                 "valuation_inputs": valuation_inputs,
+                "model_specific_inputs": model_specific_inputs,
+                "valuation_model_type": model_type,
                 "liquidity_inputs": input_data.get("liquidity_inputs") or {},
                 "tracking_inputs": input_data.get("tracking_inputs") or {},
                 "holdings_inputs": holdings_inputs,
@@ -188,12 +204,21 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             },
         )
 
-    value_range = reference_range_from_inputs(dict(valuation_inputs))
+    value_range = reference_range_from_inputs(
+        dict(valuation_inputs),
+        model_type=model_type,
+        model_specific_inputs=dict(model_specific_inputs),
+    )
     if trace_recorder is not None:
         trace_recorder.record(
             run_id=run_id,
             stage="valuation",
-            input_payload={"features": features, "valuation_inputs": valuation_inputs},
+            input_payload={
+                "features": features,
+                "valuation_inputs": valuation_inputs,
+                "model_specific_inputs": model_specific_inputs,
+                "valuation_model_type": model_type,
+            },
             output_payload=value_range,
             diff_metrics={
                 "reference_value_mid": _round_float(value_range.mid),
@@ -202,7 +227,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             },
         )
 
-    signal = build_etf_signal(features=features, base_role_score=_role_score(input_data))
+    signal = build_etf_signal(features=features, base_role_score=_role_score(input_data, sleeve_key), model_type=model_type)
     if trace_recorder is not None:
         trace_recorder.record(
             run_id=run_id,
@@ -217,13 +242,16 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             },
         )
 
-    conclusion = build_conclusion(signal)
+    conclusion = build_conclusion(signal, model_type=model_type)
     report_hash = compute_report_hash(
         etf_code=etf_code,
         feature_inputs={
+            "valuation_model_type": model_type,
+            "sleeve_key": sleeve_key,
             "product": product_inputs,
             "holdings": holdings_inputs,
             "valuation": valuation_inputs,
+            "model_specific": model_specific_inputs,
         },
         valuation_outputs=value_range,
         signal_outputs=signal,
@@ -251,12 +279,16 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
         "task_type": task_type,
         "research_date": research_date,
         "status": _safe_str(input_data.get("status"), "complete"),
+        "valuation_model_type": model_type,
+        "sleeve_key": sleeve_key,
         "title": _safe_str(input_data.get("title"), f"{etf_name}ETF估值刷新"),
         "summary": _safe_str(input_data.get("summary"), conclusion.summary),
         "product_profile": {
             "fund_type": _safe_str(product_inputs.get("fund_type"), "ETF"),
             "tracking_index": product_inputs.get("tracking_index"),
             "asset_class": _safe_str(product_inputs.get("asset_class"), "待确认"),
+            "valuation_model_type": model_type,
+            "sleeve_key": sleeve_key,
             "portfolio_role": _safe_str(input_data.get("portfolio_role") or product_inputs.get("portfolio_role"), "观察工具"),
             "fee_note": _safe_str(product_inputs.get("fee_note"), "费率数据待补充。"),
             "liquidity_note": _safe_str(
@@ -298,7 +330,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             "method": value_range.method,
             "confidence": _valuation_confidence(features, value_range),
             "key_assumptions": [
-                "reference range generated by deterministic NAV and index-valuation rules",
+                f"reference range generated by deterministic {model_type} rules",
                 "fund_portfolio holdings are disclosed and lagged, not real-time complete holdings",
             ],
             "engine_version": VALUATION_ENGINE_VERSION,
@@ -307,6 +339,11 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             "tracking_score": _round_float(signal.tracking_score),
             "portfolio_role_score": _round_float(signal.portfolio_role_score),
             "risk_adjusted_score": _round_float(signal.risk_adjusted_score),
+            "mainline_validity_score": _round_float(signal.mainline_validity_score),
+            "valuation_tolerance_score": _round_float(signal.valuation_tolerance_score),
+            "crowding_risk_score": _round_float(signal.crowding_risk_score),
+            "factor_premium_score": _round_float(signal.factor_premium_score),
+            "cash_like_safety_score": _round_float(signal.cash_like_safety_score),
         },
         "base_position_view": conclusion.grade,
         "risk": risk,

@@ -266,6 +266,45 @@ def queue_source_label(source_type: object) -> str:
     return str(source_type or "未知来源")
 
 
+def _active_queue_filter_sql(alias: str = "q") -> tuple[str, list[Any]]:
+    prefix = f"{alias}." if alias else ""
+    return (
+        f"""
+        (
+            (
+                {prefix}source_type = ?
+                AND {prefix}report_id = (
+                    SELECT report_id
+                    FROM leader_reports
+                    WHERE COALESCE(schema_version, '') NOT IN (
+                        'manual_research_request.v1',
+                        'manual_etf_research_request.v1'
+                    )
+                      AND COALESCE(source_url, '') NOT LIKE '/research?%'
+                    ORDER BY COALESCE(generated_at, fetched_at) DESC, fetched_at DESC
+                    LIMIT 1
+                )
+            )
+            OR (
+                {prefix}source_type = ?
+                AND {prefix}report_id = (
+                    SELECT report_id
+                    FROM leader_reports
+                    WHERE COALESCE(schema_version, '') IN (
+                        'manual_research_request.v1',
+                        'manual_etf_research_request.v1'
+                    )
+                       OR COALESCE(source_url, '') LIKE '/research?%'
+                    ORDER BY COALESCE(generated_at, fetched_at) DESC, fetched_at DESC
+                    LIMIT 1
+                )
+            )
+        )
+        """,
+        [QUEUE_SOURCE_TRACKABLE, QUEUE_SOURCE_REQUEST],
+    )
+
+
 def normalize_trade_date(value: object) -> str:
     text = str(value or "").strip()
     if len(text) == 8 and text.isdigit():
@@ -910,17 +949,19 @@ def _queue_status_case() -> str:
 
 
 def list_queue(conn: sqlite3.Connection, status: str | None = None) -> list[sqlite3.Row]:
-    params: tuple[Any, ...]
-    where = ""
+    params: list[Any] = []
+    filters: list[str] = []
     if status:
         if status == "blocked":
-            where = "WHERE t.status IN (?, ?)"
-            params = (TaskStatus.FAILED.value, TaskStatus.BLOCKED.value)
+            filters.append("t.status IN (?, ?)")
+            params.extend([TaskStatus.FAILED.value, TaskStatus.BLOCKED.value])
         else:
-            where = "WHERE t.status = ?"
-            params = (queue_status_to_task_status(status).value,)
-    else:
-        params = ()
+            filters.append("t.status = ?")
+            params.append(queue_status_to_task_status(status).value)
+    active_filter, active_params = _active_queue_filter_sql("q")
+    filters.append(active_filter)
+    params.extend(active_params)
+    where = "WHERE " + " AND ".join(filters)
     return list(
         conn.execute(
             f"""
@@ -935,12 +976,13 @@ def list_queue(conn: sqlite3.Connection, status: str | None = None) -> list[sqli
             {where}
             ORDER BY q.priority ASC, q.stage ASC, q.id ASC
             """,
-            params,
+            tuple(params),
         )
     )
 
 
 def list_queue_for_etf(conn: sqlite3.Connection, code: str) -> list[sqlite3.Row]:
+    active_filter, active_params = _active_queue_filter_sql("q")
     return list(
         conn.execute(
             f"""
@@ -952,21 +994,23 @@ def list_queue_for_etf(conn: sqlite3.Connection, code: str) -> list[sqlite3.Row]
                 t.error_message AS error_message
             FROM research_queue q
             JOIN task_queue t ON t.run_id = q.run_id
-            WHERE q.code = ?
+            WHERE q.code = ? AND {active_filter}
             ORDER BY q.created_at DESC, q.priority ASC, q.stage ASC, q.id ASC
             """,
-            (code,),
+            (code, *active_params),
         )
     )
 
 
 def next_queue_item(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    active_filter, active_params = _active_queue_filter_sql("q")
     return conn.execute(
-        """
+        f"""
         SELECT q.*
         FROM research_queue q
         JOIN task_queue t ON t.run_id = q.run_id
         WHERE t.status = 'PENDING'
+          AND {active_filter}
           AND (
               q.depends_on_task_type IS NULL
               OR EXISTS (
@@ -979,7 +1023,8 @@ def next_queue_item(conn: sqlite3.Connection) -> sqlite3.Row | None:
           )
         ORDER BY q.priority ASC, q.stage ASC, q.id ASC
         LIMIT 1
-        """
+        """,
+        tuple(active_params),
     ).fetchone()
 
 
@@ -1005,14 +1050,15 @@ def claim_next_queue_item(conn: sqlite3.Connection) -> sqlite3.Row | None:
 
 
 def has_profile_work(conn: sqlite3.Connection, code: str) -> bool:
+    active_filter, active_params = _active_queue_filter_sql("research_queue")
     queued = conn.execute(
-        """
+        f"""
         SELECT 1
         FROM research_queue
-        WHERE code = ? AND task_type = 'profile'
+        WHERE code = ? AND task_type = 'profile' AND {active_filter}
         LIMIT 1
         """,
-        (code,),
+        (code, *active_params),
     ).fetchone()
     if queued:
         return True
@@ -1088,11 +1134,14 @@ def insert_research_run(conn: sqlite3.Connection, report: ETFResearchReport) -> 
         "valuation_unit": valuation.unit,
         "valuation_method": valuation.method,
         "valuation_confidence": valuation.confidence,
-        "industry_position": f"{product.asset_class}；跟踪指数：{product.tracking_index or '待确认'}",
+        "industry_position": (
+            f"{product.asset_class}；估值框架：{report.valuation_model_type}；"
+            f"五仓角色：{report.sleeve_key}；跟踪指数：{product.tracking_index or '待确认'}"
+        ),
         "competition_landscape": holdings.concentration_note,
         "upstream_downstream": "；".join(holdings.top_holdings) or holdings.disclosure_lag_note,
         "annual_growth": (
-            f"估值分位 {valuation.valuation_percentile}; 折溢价 {valuation.premium_discount}; "
+            f"方法 {valuation.method}; 估值分位 {valuation.valuation_percentile}; 折溢价 {valuation.premium_discount}; "
             f"流动性分 {valuation.liquidity_score}; 跟踪分 {valuation.tracking_score}"
         ),
         "multi_bagger_potential": product.portfolio_role,

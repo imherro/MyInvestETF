@@ -3,6 +3,7 @@
 ## 结构化 ETF 数据
 
 - theme.okbbc.com：可跟踪主线 ETF 默认入口，读取 `https://theme.okbbc.com/api/latest` 的 `result.etf_top`。
+- 主线入口会先按 ETF 投资暴露归类，再按成交额保留代表；同一研究类中成交额较小的 ETF 不进入当前深研队列。
 - Tushare：A 股 ETF 结构化主源，使用本地 `.env` 中的 `TUSHARE_TOKEN`。
 - `fund_basic`：基金基础信息。
 - `fund_daily`：ETF 日行情。
@@ -10,6 +11,8 @@
 - `fund_share`：基金份额变化，可作为申赎和资金流代理。
 - `fund_portfolio`：已披露持仓，注意披露滞后。
 - `index_daily`：底层指数行情。
+
+短融、日利、货币和现金类 ETF 视为现金替代监控对象，不做深度估值研究；只检查流动性、折溢价异常、久期风险、信用风险和收益稳定性。
 
 ## 补充证据
 

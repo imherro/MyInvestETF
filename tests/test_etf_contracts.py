@@ -99,6 +99,12 @@ class ETFContractTests(unittest.TestCase):
                         "score": 90.0,
                     },
                     {
+                        "ts_code": "588200.SH",
+                        "name": "嘉实上证科创板芯片ETF",
+                        "amount": 900.0,
+                        "score": 89.0,
+                    },
+                    {
                         "ts_code": "159842.SZ",
                         "name": "银华中证全指证券公司ETF",
                         "amount": 10.0,
@@ -114,8 +120,8 @@ class ETFContractTests(unittest.TestCase):
             },
         }
         items = primary_items(payload)
-        self.assertEqual({item["code"] for item in items}, {"588710.SH", "512880.SH"})
-        self.assertEqual({item["category_key"] for item in items}, {"上证科创板半导体材料设备主题ETF", "中证全指证券公司ETF"})
+        self.assertEqual({item["code"] for item in items}, {"588200.SH", "512880.SH"})
+        self.assertEqual({item["category_key"] for item in items}, {"半导体芯片", "证券金融"})
 
     def test_profile_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
@@ -124,6 +130,8 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("唯一研究对象：510300.SH 沪深300ETF", prompt)
         self.assertIn("task_type 必须为 profile", prompt)
         self.assertIn("fund_portfolio 只能作为已披露季报持仓", prompt)
+        self.assertIn("valuation_model_type：broad_index", prompt)
+        self.assertIn("核心宽基", prompt)
 
     def test_valuation_prompt_depends_on_profile_and_uses_etf_inputs(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
@@ -133,6 +141,24 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("fund_share 是份额变化的可用代理", prompt)
         self.assertIn("不要手写最终 ETFResearchReport", prompt)
         self.assertIn("data_gaps", prompt)
+        self.assertIn("equity_risk_premium", prompt)
+        self.assertIn("market_position_score", prompt)
+
+    def test_type_specific_prompts_use_different_investment_bases(self) -> None:
+        report = {"report_id": "r1", "basis_date": "2026-06-24"}
+        mainline = build_valuation_prompt({"code": "588170.SH", "name": "科创半导体材料设备ETF", "theme": "半导体"}, report)
+        defensive = build_valuation_prompt({"code": "512890.SH", "name": "红利低波ETF", "theme": "红利低波"}, report)
+        cash_like = build_valuation_prompt({"code": "511360.SH", "name": "短融ETF", "theme": "现金替代"}, report)
+
+        self.assertIn("valuation_model_type：mainline_theme", mainline)
+        self.assertIn("theme_strength", mainline)
+        self.assertIn("crowding_score", mainline)
+        self.assertIn("valuation_model_type：factor_defensive", defensive)
+        self.assertIn("dividend_spread", defensive)
+        self.assertIn("style_opportunity_cost", defensive)
+        self.assertIn("valuation_model_type：cash_like", cash_like)
+        self.assertIn("duration_risk", cash_like)
+        self.assertIn("不生成深度 valuation 研究", cash_like)
 
     def test_requested_etf_enqueue_marks_source(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -143,6 +169,17 @@ class ETFContractTests(unittest.TestCase):
             self.assertEqual(result["queued"], ["profile", "valuation"])
             self.assertEqual({row["source_type"] for row in rows}, {QUEUE_SOURCE_REQUEST})
             self.assertEqual([row["task_type"] for row in rows], ["profile", "valuation"])
+
+    def test_cash_like_requested_etf_does_not_enqueue_deep_research(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "cash.sqlite"
+            result = enqueue_requested_etf("511360.SH", name="短融ETF", db_path=db_path)
+            with closing(connect(db_path)) as conn:
+                rows = list_queue(conn)
+            self.assertEqual(result["valuation_model_type"], "cash_like")
+            self.assertEqual(result["queued"], [])
+            self.assertEqual(result["skipped"], ["cash_like_no_deep_research"])
+            self.assertEqual(rows, [])
 
     def test_latest_report_ignores_manual_etf_requests(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -284,9 +321,11 @@ class ETFContractTests(unittest.TestCase):
             "scores_json": '{"theme_binding":80,"evidence_quality":80}',
             "risk_flags_json": "[]",
             "data_gaps_json": "[]",
+            "raw_json": '{"category_key":"沪深300","valuation_model_type":"broad_index"}',
             "xueqiu_url": "https://xueqiu.com/S/SH510300",
         }
         summary = leader_to_summary(row)
+        self.assertEqual(summary["category_key"], "沪深300")
         self.assertEqual(summary["links"]["page"], "/etfs/510300.SH")
         self.assertEqual(summary["links"]["api"], "/api/etfs/510300.SH")
 

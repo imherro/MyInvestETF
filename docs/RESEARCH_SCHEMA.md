@@ -18,6 +18,8 @@
 - `task_type`: `profile` 或 `valuation`
 - `research_date`: `YYYY-MM-DD`
 - `status`: `complete`、`draft` 或 `blocked`
+- `valuation_model_type`: `broad_index`、`mainline_theme`、`factor_defensive` 或 `cash_like`
+- `sleeve_key`: `core_wide_etf`、`mainline_etf`、`defensive_quality` 或 `cash_like`
 - `title`、`summary`
 - `product_profile`
 - `holdings_profile`
@@ -34,6 +36,7 @@
 - schema 禁止额外字段。
 - `report_hash` 如果提供，必须是 64 位小写 sha256 hex。
 - `base_position_view` 必须等于 `conclusion.grade`。
+- 顶层 `valuation_model_type` / `sleeve_key` 必须等于 `product_profile` 内部同名字段。
 - 如果显式提供 `run_id`，必须等于系统计算值。
 - `profile` 不允许写入参考价值区间。
 - `valuation` 必须写入完整参考价值区间，且 `low <= mid <= high`。
@@ -65,3 +68,21 @@ BLOCKED -> FAILED
 - `工具仓可用`
 - `底仓候选`
 - `估值或拥挤暂缓`
+
+## 类型化估值输入
+
+`valuation` 任务的 `assembly_input` 必须包含：
+
+- `valuation_model_type`
+- `sleeve_key`
+- `valuation_inputs`
+- `model_specific_inputs`
+
+`model_specific_inputs` 按类型分流：
+
+- `broad_index`: `equity_risk_premium`, `roe`, `market_position_score`
+- `mainline_theme`: `theme_strength`, `fund_flow_score`, `crowding_score`, `valuation_tolerance`
+- `factor_defensive`: `dividend_spread`, `fcf_yield`, `quality_score`, `style_opportunity_cost`
+- `cash_like`: `duration_risk`, `credit_risk`, `yield_stability`
+
+现金替代类 ETF 不进入深度研究队列；如生成监控型报告，也只能用于现金替代资格检查。

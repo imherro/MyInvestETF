@@ -11,6 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
+
 from .config import DB_PATH, DEFAULT_HOST, DEFAULT_PORT, FOOTER_SCRIPT_URL, ROOT, STATIC_ASSET_VERSION
 from .db import (
     connect,
@@ -48,14 +50,62 @@ def load_json(value: str | None, fallback: object) -> object:
         return fallback
 
 
+MODEL_TYPE_LABELS = {
+    "broad_index": "宽基估值",
+    "mainline_theme": "主线估值",
+    "factor_defensive": "收益防御估值",
+    "cash_like": "现金替代监控",
+}
+
+SLEEVE_LABELS = {
+    "core_wide_etf": "核心宽基仓",
+    "mainline_etf": "主线进攻仓",
+    "defensive_quality": "收益防御仓",
+    "cash_like": "现金替代仓",
+}
+
+
+def leader_model_info(row: object | None) -> dict[str, object]:
+    if row is None:
+        return {"valuation_model_type": "mainline_theme", "sleeve_key": "mainline_etf"}
+    raw = load_json(_row_value(row, "raw_json"), {})
+    raw_map = raw if isinstance(raw, dict) else {}
+    model_type = str(raw_map.get("valuation_model_type") or "")
+    if not model_type:
+        model_type = infer_valuation_model_type(
+            {
+                "code": _row_value(row, "code"),
+                "name": _row_value(row, "name"),
+                "theme": _row_value(row, "theme"),
+                "category_key": raw_map.get("category_key"),
+            }
+        )
+    sleeve_key = str(raw_map.get("sleeve_key") or sleeve_for_valuation_model(model_type))
+    return {
+        "valuation_model_type": model_type,
+        "valuation_model_label": MODEL_TYPE_LABELS.get(model_type, model_type),
+        "sleeve_key": sleeve_key,
+        "sleeve_label": SLEEVE_LABELS.get(sleeve_key, sleeve_key),
+    }
+
+
+def leader_category_key(row: object) -> str:
+    raw = load_json(_row_value(row, "raw_json"), {})
+    raw_map = raw if isinstance(raw, dict) else {}
+    return str(raw_map.get("category_key") or _row_value(row, "theme") or "")
+
+
 def leader_to_summary(row: object) -> dict[str, object]:
     market = load_json(row["market_json"], {})
     scores = load_json(row["scores_json"], {})
     upstream_signal = upstream_signal_summary(row)
+    model_info = leader_model_info(row)
     return {
         "code": row["code"],
         "name": row["name"],
+        **model_info,
         "theme": row["theme"],
+        "category_key": leader_category_key(row),
         "themes": load_json(row["themes_json"], []),
         "deep_rating": row["deep_rating"],
         "deep_label": row["deep_label"],
@@ -84,11 +134,15 @@ def leader_to_summary(row: object) -> dict[str, object]:
 
 def research_run_to_summary(row: object) -> dict[str, object]:
     valuation_signal = valuation_signal_summary(row)
+    raw = load_json(row["raw_json"], {})
+    raw_map = raw if isinstance(raw, dict) else {}
     return {
         "id": row["id"],
         "task_type": row["task_type"],
         "research_date": row["research_date"],
         "status": row["status"],
+        "valuation_model_type": raw_map.get("valuation_model_type"),
+        "sleeve_key": raw_map.get("sleeve_key"),
         "title": row["title"],
         "summary": row["summary"],
         "valuation": {
@@ -266,10 +320,45 @@ def upstream_signal_summary(row: object | None) -> dict[str, object]:
     }
 
 
+def valuation_signal_explanation(
+    *,
+    model_type: str,
+    undervalued_score: object,
+    liquidity_score: object,
+    tracking_score: object,
+    portfolio_role_score: object,
+    risk_adjusted_score: object,
+    mainline_validity_score: object,
+    valuation_tolerance_score: object,
+    crowding_risk_score: object,
+    factor_premium_score: object,
+    cash_like_safety_score: object,
+) -> str:
+    if model_type == "mainline_theme":
+        lead = (
+            f"主线有效性 {fmt_num(mainline_validity_score)}；估值容错 {fmt_num(valuation_tolerance_score)}；"
+            f"拥挤风险 {fmt_num(crowding_risk_score)}"
+        )
+    elif model_type == "factor_defensive":
+        lead = f"防御因子溢价 {fmt_num(factor_premium_score)}"
+    elif model_type == "cash_like":
+        lead = f"现金替代安全 {fmt_num(cash_like_safety_score)}"
+    else:
+        lead = f"宽基估值安全 {fmt_num(undervalued_score)}"
+    return (
+        f"{lead}；流动性 {fmt_num(liquidity_score)}；跟踪质量 {fmt_num(tracking_score)}；"
+        f"仓位角色 {fmt_num(portfolio_role_score)}；风险调整 {fmt_num(risk_adjusted_score)}"
+    )
+
+
 def valuation_signal_summary(row: object | None) -> dict[str, object]:
     if row is None:
         return {
             "source": "MyInvestETF deterministic valuation",
+            "valuation_model_type": None,
+            "valuation_model_label": "待估值",
+            "sleeve_key": None,
+            "sleeve_label": "待分类",
             "bucket": "unknown",
             "label": _bucket_label("unknown", kind="valuation"),
             "explanation": "等待ETF估值刷新入库。",
@@ -277,11 +366,18 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
     raw = load_json(_row_value(row, "raw_json"), {})
     valuation = raw.get("valuation") if isinstance(raw, dict) else {}
     conclusion = raw.get("conclusion") if isinstance(raw, dict) else {}
+    model_type = str(raw.get("valuation_model_type") or "") if isinstance(raw, dict) else ""
+    sleeve_key = str(raw.get("sleeve_key") or "") if isinstance(raw, dict) else ""
     undervalued_score = _num(valuation.get("undervalued_score")) if isinstance(valuation, dict) else None
     risk_adjusted_score = _num(valuation.get("risk_adjusted_score")) if isinstance(valuation, dict) else None
     liquidity_score = _num(valuation.get("liquidity_score")) if isinstance(valuation, dict) else None
     tracking_score = _num(valuation.get("tracking_score")) if isinstance(valuation, dict) else None
     portfolio_role_score = _num(valuation.get("portfolio_role_score")) if isinstance(valuation, dict) else None
+    mainline_validity_score = _num(valuation.get("mainline_validity_score")) if isinstance(valuation, dict) else None
+    valuation_tolerance_score = _num(valuation.get("valuation_tolerance_score")) if isinstance(valuation, dict) else None
+    crowding_risk_score = _num(valuation.get("crowding_risk_score")) if isinstance(valuation, dict) else None
+    factor_premium_score = _num(valuation.get("factor_premium_score")) if isinstance(valuation, dict) else None
+    cash_like_safety_score = _num(valuation.get("cash_like_safety_score")) if isinstance(valuation, dict) else None
     if undervalued_score is None:
         bucket = "unknown"
     elif undervalued_score >= 70.0:
@@ -293,6 +389,10 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
     label = _bucket_label(bucket, kind="valuation")
     return {
         "source": "MyInvestETF deterministic valuation",
+        "valuation_model_type": model_type or None,
+        "valuation_model_label": MODEL_TYPE_LABELS.get(model_type, model_type or "待估值"),
+        "sleeve_key": sleeve_key or None,
+        "sleeve_label": SLEEVE_LABELS.get(sleeve_key, sleeve_key or "待分类"),
         "bucket": bucket,
         "label": label,
         "undervalued_score": undervalued_score,
@@ -300,6 +400,11 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
         "tracking_score": tracking_score,
         "portfolio_role_score": portfolio_role_score,
         "risk_adjusted_score": risk_adjusted_score,
+        "mainline_validity_score": mainline_validity_score,
+        "valuation_tolerance_score": valuation_tolerance_score,
+        "crowding_risk_score": crowding_risk_score,
+        "factor_premium_score": factor_premium_score,
+        "cash_like_safety_score": cash_like_safety_score,
         "valuation_range": {
             "low": _row_value(row, "valuation_low"),
             "mid": _row_value(row, "valuation_mid"),
@@ -309,10 +414,18 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
         },
         "raw_grade": _row_value(row, "heavy_position_view"),
         "raw_summary": conclusion.get("summary") if isinstance(conclusion, dict) else None,
-        "explanation": (
-            f"估值位置 {fmt_num(undervalued_score)}；流动性 {fmt_num(liquidity_score)}；"
-            f"跟踪质量 {fmt_num(tracking_score)}；底仓角色 {fmt_num(portfolio_role_score)}；"
-            f"风险调整 {fmt_num(risk_adjusted_score)}"
+        "explanation": valuation_signal_explanation(
+            model_type=model_type,
+            undervalued_score=undervalued_score,
+            liquidity_score=liquidity_score,
+            tracking_score=tracking_score,
+            portfolio_role_score=portfolio_role_score,
+            risk_adjusted_score=risk_adjusted_score,
+            mainline_validity_score=mainline_validity_score,
+            valuation_tolerance_score=valuation_tolerance_score,
+            crowding_risk_score=crowding_risk_score,
+            factor_premium_score=factor_premium_score,
+            cash_like_safety_score=cash_like_safety_score,
         ),
     }
 
@@ -625,6 +738,8 @@ def render_home() -> bytes:
     for row in leaders:
         market = load_json(row["market_json"], {})
         scores = load_json(row["scores_json"], {})
+        model_info = leader_model_info(row)
+        category_key = leader_category_key(row)
         cards.append(
             f"""<article class="etf-card">
         <div>
@@ -633,7 +748,9 @@ def render_home() -> bytes:
         </div>
         <div class="badges">
           <span class="badge badge-strong">{esc(row['deep_rating'] or '')} {esc(row['deep_label'] or '')}</span>
-          <span class="badge">{esc(row['theme'] or '')}</span>
+          <span class="badge">{esc(category_key)}</span>
+          <span class="badge">{esc(model_info.get('valuation_model_label'))}</span>
+          <span class="badge">{esc(model_info.get('sleeve_label'))}</span>
         </div>
         <div class="card-grid">
           {metric("深研", row["deep_score"])}
@@ -1109,6 +1226,19 @@ def render_signal_matrix(
             f"{fmt_num(valuation_range.get('low'))} / {fmt_num(valuation_range.get('mid'))} / "
             f"{fmt_num(valuation_range.get('high'))}"
         )
+    model_type = str(valuation_signal.get("valuation_model_type") or "")
+    if model_type == "mainline_theme":
+        model_specific_items = (
+            signal_item("主线有效性", fmt_num(valuation_signal.get("mainline_validity_score")))
+            + signal_item("估值容错", fmt_num(valuation_signal.get("valuation_tolerance_score")))
+            + signal_item("拥挤风险", fmt_num(valuation_signal.get("crowding_risk_score")))
+        )
+    elif model_type == "factor_defensive":
+        model_specific_items = signal_item("防御因子溢价", fmt_num(valuation_signal.get("factor_premium_score")))
+    elif model_type == "cash_like":
+        model_specific_items = signal_item("现金替代安全", fmt_num(valuation_signal.get("cash_like_safety_score")))
+    else:
+        model_specific_items = signal_item("宽基估值安全", fmt_num(valuation_signal.get("undervalued_score")))
     return f"""<section class="section-block">
         <h2>产品信号与ETF估值适配</h2>
         <div class="signal-matrix">
@@ -1127,15 +1257,17 @@ def render_signal_matrix(
             <p class="signal-note">上游风险：{esc(risk_text)}</p>
           </div>
           <div class="signal-panel signal-panel-valuation">
-            <h3>ETF估值与底仓适配</h3>
-            <p class="muted">来自 MyInvestETF 确定性评分，综合净值、折溢价、流动性、跟踪质量和底仓角色。</p>
+            <h3>ETF类型化估值与仓位适配</h3>
+            <p class="muted">来自 MyInvestETF 确定性评分；不同 ETF 类型使用不同估值依据。</p>
             <div class="signal-grid">
+              {signal_item("估值框架", valuation_signal.get("valuation_model_label"))}
+              {signal_item("五仓角色", valuation_signal.get("sleeve_label"))}
               {signal_item("适配状态", valuation_signal.get("label"))}
               {signal_item("参考区间", range_text, valuation_signal.get("source"))}
-              {signal_item("估值位置", fmt_num(valuation_signal.get("undervalued_score")))}
+              {model_specific_items}
               {signal_item("流动性", fmt_num(valuation_signal.get("liquidity_score")))}
               {signal_item("跟踪质量", fmt_num(valuation_signal.get("tracking_score")))}
-              {signal_item("底仓角色", fmt_num(valuation_signal.get("portfolio_role_score")))}
+              {signal_item("仓位角色", fmt_num(valuation_signal.get("portfolio_role_score")))}
               {signal_item("风险调整", fmt_num(valuation_signal.get("risk_adjusted_score")))}
             </div>
             <p class="signal-note">ETF模型原始标签：{esc(valuation_signal.get("raw_grade") or "待入库")}</p>
@@ -1241,8 +1373,11 @@ def render_etf_page(code: str) -> bytes:
     etf_theme = leader["theme"] if leader is not None else "其他请求"
     etf_claim = leader["candidate_leader_claim"] if leader is not None else "主动研究请求"
     xueqiu_url = leader["xueqiu_url"] if leader is not None else None
+    model_info = leader_model_info(leader)
     upstream_signal = upstream_signal_summary(leader)
     valuation_signal = valuation_signal_summary(valuation_run if valuation_run else None)
+    if valuation_signal.get("valuation_model_type") is None:
+        valuation_signal.update(model_info)
     decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
     rating_label = (
         f"{leader['deep_rating'] or ''} {leader['deep_label'] or ''}".strip()
@@ -1287,6 +1422,8 @@ def render_etf_page(code: str) -> bytes:
           {metric("收盘", market.get("close"))}
           {metric("PE TTM", market.get("pe_ttm"))}
           {metric("PB", market.get("pb"))}
+          {metric("估值框架", model_info.get("valuation_model_label"))}
+          {metric("五仓角色", model_info.get("sleeve_label"))}
           {metric("证据质量", scores.get("evidence_quality"))}
           {metric("估值安全", scores.get("valuation_safety"))}
         </div>
@@ -1348,8 +1485,11 @@ def render_etf_page(code: str) -> bytes:
 def api_etfs() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         report = latest_report(conn)
-        leaders = rows_to_dicts(list_latest_leaders(conn))
-    return json.dumps({"report": dict(report) if report else None, "items": leaders}, ensure_ascii=False).encode("utf-8")
+        leaders = list_latest_leaders(conn)
+    return json.dumps(
+        {"report": dict(report) if report else None, "items": [leader_to_summary(row) for row in leaders]},
+        ensure_ascii=False,
+    ).encode("utf-8")
 
 
 def api_index() -> bytes:

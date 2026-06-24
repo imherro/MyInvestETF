@@ -14,12 +14,16 @@ def base_report() -> dict:
         "task_type": "valuation",
         "research_date": "2026-06-24",
         "status": "complete",
+        "valuation_model_type": "broad_index",
+        "sleeve_key": "core_wide_etf",
         "title": "沪深300ETF估值刷新",
         "summary": "估值刷新。",
         "product_profile": {
             "fund_type": "ETF",
             "tracking_index": "沪深300",
             "asset_class": "宽基权益",
+            "valuation_model_type": "broad_index",
+            "sleeve_key": "core_wide_etf",
             "portfolio_role": "底仓候选",
             "fee_note": "费率待核实。",
             "liquidity_note": "流动性较好。",
@@ -52,6 +56,11 @@ def base_report() -> dict:
             "tracking_score": 90.0,
             "portfolio_role_score": 70.0,
             "risk_adjusted_score": 68.0,
+            "mainline_validity_score": 50.0,
+            "valuation_tolerance_score": 50.0,
+            "crowding_risk_score": 50.0,
+            "factor_premium_score": 50.0,
+            "cash_like_safety_score": 50.0,
         },
         "base_position_view": "工具仓可用",
         "risk": {
@@ -100,6 +109,12 @@ class ETFReportSchemaTests(unittest.TestCase):
     def test_grade_must_match_base_position_view(self) -> None:
         payload = base_report()
         payload["conclusion"]["grade"] = "底仓候选"
+        with self.assertRaises(ValueError):
+            validate_etf_research_report(payload)
+
+    def test_product_model_type_must_match_top_level(self) -> None:
+        payload = base_report()
+        payload["product_profile"]["valuation_model_type"] = "mainline_theme"
         with self.assertRaises(ValueError):
             validate_etf_research_report(payload)
 
