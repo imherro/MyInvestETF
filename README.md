@@ -116,6 +116,7 @@ LLM 负责：
 ## 数据原则
 
 - 可跟踪 ETF 默认入口为 `https://theme.okbbc.com/api/latest` 的 `result.etf_top`，并兼容旧 `key_results.primary_output.items` 结构。
+- 同一 ETF 类别只保留成交额最大的一个代表进入研究队列，避免重复研究同质化产品。
 - Tushare 是 ETF 结构化主源，通过本地 `.env` 读取 token。
 - 优先接口：`fund_basic`、`fund_daily`、`fund_nav`、`fund_share`、`fund_portfolio`、`index_daily`。
 - 网络资料只作为补充证据，必须记录来源、日期和用途。

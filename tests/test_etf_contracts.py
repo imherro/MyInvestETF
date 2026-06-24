@@ -22,6 +22,7 @@ from myinvestetf.leader_index import (
     build_requested_valuation_prompt,
     build_valuation_prompt,
     enqueue_requested_etf,
+    ingest_payload,
     primary_items,
     report_meta,
 )
@@ -77,6 +78,43 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual([item["code"] for item in items], ["588170.SH"])
         self.assertEqual(items[0]["deep_label"], "可跟踪主线ETF")
         self.assertEqual(items[0]["scores"]["mainline_strength"], 98.751705)
+
+    def test_primary_items_keeps_largest_amount_per_etf_category(self) -> None:
+        payload = {
+            "report_id": "mainline_review_2026-06-23_173855",
+            "result": {
+                "basis_date": "2026-06-23",
+                "etf_top": [
+                    {
+                        "ts_code": "588170.SH",
+                        "name": "华夏上证科创板半导体材料设备主题ETF",
+                        "amount": 100.0,
+                        "score": 95.0,
+                    },
+                    {
+                        "ts_code": "588710.SH",
+                        "name": "华泰柏瑞上证科创板半导体材料设备主题ETF",
+                        "amount": 300.0,
+                        "score": 90.0,
+                    },
+                    {
+                        "ts_code": "159842.SZ",
+                        "name": "银华中证全指证券公司ETF",
+                        "amount": 10.0,
+                        "score": 92.0,
+                    },
+                    {
+                        "ts_code": "512880.SH",
+                        "name": "国泰中证全指证券公司ETF",
+                        "amount": 500.0,
+                        "score": 91.0,
+                    },
+                ],
+            },
+        }
+        items = primary_items(payload)
+        self.assertEqual({item["code"] for item in items}, {"588710.SH", "512880.SH"})
+        self.assertEqual({item["category_key"] for item in items}, {"上证科创板半导体材料设备主题ETF", "中证全指证券公司ETF"})
 
     def test_profile_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
@@ -144,6 +182,37 @@ class ETFContractTests(unittest.TestCase):
                 leaders = list_latest_leaders(conn)
             self.assertEqual(report["report_id"], "mainline_r1")
             self.assertEqual([row["code"] for row in leaders], ["588170.SH"])
+
+    def test_ingest_prunes_lower_liquidity_same_category_from_existing_report(self) -> None:
+        first_payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-23",
+                "etf_top": [
+                    {"ts_code": "588170.SH", "name": "华夏上证科创板半导体材料设备主题ETF", "amount": 100.0, "score": 95.0},
+                    {"ts_code": "159842.SZ", "name": "银华中证全指证券公司ETF", "amount": 10.0, "score": 92.0},
+                ],
+            },
+        }
+        second_payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-23",
+                "etf_top": [
+                    {"ts_code": "588710.SH", "name": "华泰柏瑞上证科创板半导体材料设备主题ETF", "amount": 300.0, "score": 90.0},
+                    {"ts_code": "512880.SH", "name": "国泰中证全指证券公司ETF", "amount": 500.0, "score": 91.0},
+                ],
+            },
+        }
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "prune.sqlite"
+            ingest_payload(first_payload, source_url="https://theme.okbbc.com/api/latest", db_path=db_path)
+            ingest_payload(second_payload, source_url="https://theme.okbbc.com/api/latest", db_path=db_path)
+            with closing(connect(db_path)) as conn:
+                leaders = list_latest_leaders(conn)
+                queue = list_queue(conn)
+            self.assertEqual([row["code"] for row in leaders], ["512880.SH", "588710.SH"])
+            self.assertEqual({row["code"] for row in queue}, {"512880.SH", "588710.SH"})
 
     def test_requested_prompts_do_not_require_api_index_membership(self) -> None:
         report = {"report_id": "manual_etf_research_request_2026-06-24", "basis_date": "2026-06-24"}

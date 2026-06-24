@@ -729,6 +729,32 @@ def upsert_queue_item(
     )
 
 
+def prune_trackable_report(conn: sqlite3.Connection, *, report_id: str, keep_codes: list[str]) -> None:
+    """Keep the current report projection aligned with the selected ETF universe."""
+    if keep_codes:
+        placeholders = ", ".join("?" for _ in keep_codes)
+        params: tuple[Any, ...] = (report_id, *keep_codes)
+        conn.execute(
+            f"DELETE FROM trackable_leaders WHERE report_id = ? AND code NOT IN ({placeholders})",
+            params,
+        )
+        conn.execute(
+            f"""
+            DELETE FROM research_queue
+            WHERE report_id = ?
+              AND source_type = ?
+              AND code NOT IN ({placeholders})
+            """,
+            (report_id, QUEUE_SOURCE_TRACKABLE, *keep_codes),
+        )
+    else:
+        conn.execute("DELETE FROM trackable_leaders WHERE report_id = ?", (report_id,))
+        conn.execute(
+            "DELETE FROM research_queue WHERE report_id = ? AND source_type = ?",
+            (report_id, QUEUE_SOURCE_TRACKABLE),
+        )
+
+
 def latest_report(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute(
         """

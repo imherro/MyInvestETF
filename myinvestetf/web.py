@@ -1340,7 +1340,10 @@ def api_index() -> bytes:
             "upstream_endpoint": LEADER_INDEX_URL,
             "upstream_result_path": "result.etf_top",
             "compatible_result_path": "key_results.primary_output.items",
-            "source_policy": "default to theme.okbbc.com/api/latest result.etf_top; compatible with legacy /api/index items",
+            "source_policy": (
+                "default to theme.okbbc.com/api/latest result.etf_top; compatible with legacy /api/index items; "
+                "same ETF category keeps only the largest-turnover representative"
+            ),
         },
         "report": dict(report) if report else None,
         "key_results": {

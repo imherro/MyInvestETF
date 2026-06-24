@@ -14,6 +14,7 @@ from .db import (
     connect,
     has_profile_work,
     init_db,
+    prune_trackable_report,
     upsert_queue_item,
     upsert_report,
     upsert_trackable_leader,
@@ -21,6 +22,50 @@ from .db import (
 )
 
 ETF_CODE_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
+ETF_CATEGORY_FIELDS = (
+    "category_key",
+    "tracking_index",
+    "underlying_index",
+    "underlying_index_name",
+    "target_index",
+    "index_name",
+    "benchmark",
+    "category",
+)
+GENERIC_CATEGORY_VALUES = {"", "ETF", "主线ETF", "可跟踪ETF", "其他请求", "其他", "行业ETF", "主题ETF"}
+ETF_ISSUER_PREFIXES = (
+    "华泰柏瑞",
+    "国联安",
+    "易方达",
+    "汇添富",
+    "华夏",
+    "鹏华",
+    "国泰",
+    "广发",
+    "招商",
+    "万家",
+    "嘉实",
+    "博时",
+    "银华",
+    "天弘",
+    "华宝",
+    "东财",
+    "华安",
+    "南方",
+    "富国",
+    "工银瑞信",
+    "建信",
+    "中银",
+    "平安",
+    "景顺长城",
+    "大成",
+    "海富通",
+    "兴业",
+    "申万菱信",
+    "摩根",
+    "诺安",
+    "融通",
+)
 
 
 ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
@@ -106,6 +151,64 @@ def _score_rating(score: object) -> str:
     return "Watch"
 
 
+def _safe_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _compact_text(value: object) -> str:
+    text = str(value or "").strip()
+    text = text.replace("（", "(").replace("）", ")")
+    return re.sub(r"\s+", "", text)
+
+
+def _strip_issuer_prefix(name: str) -> str:
+    text = _compact_text(name)
+    for prefix in ETF_ISSUER_PREFIXES:
+        if text.startswith(prefix):
+            return text[len(prefix) :]
+    return text
+
+
+def etf_category_key(item: dict[str, Any]) -> str:
+    for field in ETF_CATEGORY_FIELDS:
+        value = _compact_text(item.get(field))
+        if value and value not in GENERIC_CATEGORY_VALUES:
+            return value
+    name_key = _strip_issuer_prefix(str(item.get("name") or item.get("fund_name") or ""))
+    return name_key or str(item.get("code") or item.get("ts_code") or "")
+
+
+def _liquidity_amount(item: dict[str, Any]) -> float:
+    for field in ("amount", "turnover_amount", "成交额", "volume", "vol"):
+        value = _safe_float(item.get(field))
+        if value:
+            return value
+    market = item.get("market")
+    if isinstance(market, dict):
+        for field in ("amount", "turnover_amount", "volume", "vol"):
+            value = _safe_float(market.get(field))
+            if value:
+                return value
+    return 0.0
+
+
+def _deduplicate_by_category(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected: dict[str, tuple[float, float, int, dict[str, Any]]] = {}
+    for index, item in enumerate(items):
+        category_key = etf_category_key(item)
+        candidate = dict(item)
+        candidate["category_key"] = category_key
+        amount = _liquidity_amount(candidate)
+        score = _safe_float(candidate.get("deep_score") or candidate.get("score"))
+        current = selected.get(category_key)
+        if current is None or (amount, score, -index) > (current[0], current[1], current[2]):
+            selected[category_key] = (amount, score, -index, candidate)
+    return [entry[3] for entry in sorted(selected.values(), key=lambda entry: (-entry[1], -entry[0], entry[3]["code"]))]
+
+
 def _normalize_theme_latest_item(item: dict[str, Any]) -> dict[str, Any]:
     code = str(item.get("code") or item.get("ts_code") or "")
     name = str(item.get("name") or item.get("fund_name") or "")
@@ -184,7 +287,7 @@ def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
             normalized["code"] = code
             normalized["name"] = name
             clean_items.append(normalized)
-    return clean_items
+    return _deduplicate_by_category(clean_items)
 
 
 def report_meta(payload: dict[str, Any]) -> dict[str, Any]:
@@ -446,6 +549,7 @@ def ingest_payload(
     init_db(db_target)
     report = report_meta(payload)
     items = primary_items(payload)
+    keep_codes = [item["code"] for item in items]
     now = utc_now()
     with closing(connect(db_target)) as conn:
         upsert_report(
@@ -459,6 +563,7 @@ def ingest_payload(
             fetched_at=now,
             raw_path=raw_path,
         )
+        prune_trackable_report(conn, report_id=report["report_id"], keep_codes=keep_codes)
         for priority, item in enumerate(
             sorted(items, key=lambda row: row.get("score") or row.get("deep_score") or 0, reverse=True),
             start=1,
