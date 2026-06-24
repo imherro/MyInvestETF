@@ -34,6 +34,7 @@ from myinvestetf.web import (
     valuation_signal_summary,
     xueqiu_etf_link,
 )
+from scripts.generate_single_etf_prompt import format_queue_prompt
 
 
 class ETFContractTests(unittest.TestCase):
@@ -143,6 +144,30 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("data_gaps", prompt)
         self.assertIn("equity_risk_premium", prompt)
         self.assertIn("market_position_score", prompt)
+
+    def test_queue_prompt_output_includes_traceable_execution_package(self) -> None:
+        text = format_queue_prompt(
+            {
+                "report_id": "r1",
+                "code": "510300.SH",
+                "name": "沪深300ETF",
+                "task_type": "valuation",
+                "task_id": "task_abc",
+                "run_id": "run_abc",
+                "priority": 1,
+                "stage": 2,
+                "depends_on_task_type": "profile",
+                "source_type": "trackable_leader",
+                "source_detail": "theme.okbbc.com/api/latest",
+                "task_keyword": "MyInvestETF ETF估值刷新 510300.SH 沪深300ETF",
+                "prompt": "只研究这一只 ETF。",
+            }
+        )
+        self.assertIn("队列任务元数据", text)
+        self.assertIn("run_id：run_abc", text)
+        self.assertIn("task_type：valuation", text)
+        self.assertIn("depends_on_task_type：profile", text)
+        self.assertIn("只执行本队列任务元数据对应的一只 ETF、一个 task_type", text)
 
     def test_type_specific_prompts_use_different_investment_bases(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}

@@ -15,6 +15,44 @@ from myinvestetf.config import DB_PATH
 from myinvestetf.db import claim_next_queue_item, connect, list_queue, next_queue_item
 
 
+def _row_value(row: object, key: str, default: object = "") -> object:
+    try:
+        value = row[key]  # type: ignore[index]
+    except (KeyError, IndexError, TypeError):
+        value = row.get(key, default) if isinstance(row, dict) else default
+    return default if value is None else value
+
+
+def format_queue_prompt(row: object) -> str:
+    prompt = str(_row_value(row, "prompt"))
+    metadata = [
+        str(_row_value(row, "task_keyword")),
+        "",
+        "队列任务元数据：",
+        f"- report_id：{_row_value(row, 'report_id')}",
+        f"- code：{_row_value(row, 'code')}",
+        f"- name：{_row_value(row, 'name')}",
+        f"- task_type：{_row_value(row, 'task_type')}",
+        f"- task_id：{_row_value(row, 'task_id')}",
+        f"- run_id：{_row_value(row, 'run_id')}",
+        f"- priority：{_row_value(row, 'priority')}",
+        f"- stage：{_row_value(row, 'stage')}",
+        f"- depends_on_task_type：{_row_value(row, 'depends_on_task_type')}",
+        f"- source_type：{_row_value(row, 'source_type')}",
+        f"- source_detail：{_row_value(row, 'source_detail')}",
+        "",
+        "Codex 执行边界：",
+        "- 只执行本队列任务元数据对应的一只 ETF、一个 task_type。",
+        "- 不从上游列表扩展新 ETF，不合并处理其他队列项。",
+        "- 成功导入报告后，确认对应 task_queue 状态进入 DONE；失败时进入 FAILED 或 BLOCKED，并写明原因。",
+        "- 不输出交易指令、现金金额或份额数量。",
+        "",
+        "队列任务提示词：",
+        prompt,
+    ]
+    return "\n".join(metadata)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate one Codex prompt for one etf only.")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -40,11 +78,7 @@ def main() -> int:
     if row is None:
         print("没有找到可领取的待研究ETF。请先运行 python scripts/ingest_index.py，或等待前置产品结构深研完成。")
         return 1
-    print(row["task_keyword"])
-    print(f"task_type={row['task_type']}")
-    print(f"depends_on_task_type={row['depends_on_task_type'] or ''}")
-    print()
-    print(row["prompt"])
+    print(format_queue_prompt(row))
     return 0
 
 

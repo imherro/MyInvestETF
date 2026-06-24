@@ -9,6 +9,8 @@ ETF 深研必须一次只研究一只 ETF。研究分为两类：
 3. `MyInvestETF ETF 产品结构深研 {code} {name}`
 4. `MyInvestETF ETF 估值刷新 {code} {name}`
 
+队列任务提示词的完整执行包设计见 [QUEUE_PROMPTS.md](QUEUE_PROMPTS.md)。自动化必须通过 `python scripts/generate_single_etf_prompt.py --next --claim` 领取任务，并使用该命令输出的“队列任务元数据 + 队列任务提示词”作为唯一执行依据。
+
 ## ETF 输入读取入队
 
 用途：读取 ETF 输入源，更新今日待研队列，不做深研。
@@ -35,6 +37,7 @@ ETF 深研必须一次只研究一只 ETF。研究分为两类：
 - `valuation` 必须依赖已有 `profile` 底稿。
 - `valuation` 最终报告必须由 `core/report.build_etf_report(...)` 或 `scripts/build_research_report.py` 生成。
 - 报告生成时应记录 `feature`、`valuation`、`signal`、`report` 四个 trace stage。
+- 领取脚本输出的 `run_id`、`task_id`、`source_type` 和 `depends_on_task_type` 必须保留在自动化汇报中。
 - 如果队列为空，汇报队列为空，不生成研究正文。
 
 ## 数据原则
