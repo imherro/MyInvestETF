@@ -1,0 +1,77 @@
+# API Contract
+
+本地服务默认运行在：
+
+```text
+http://127.0.0.1:8017
+```
+
+## `/api/index`
+
+用途：输出 ETF 主结果信息，供其他系统集成。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.index.v1`
+- `key_results.primary_output.items`: 当前 ETF 列表
+- `links.latest`: `/api/latest`
+- `constraints.read_only`: `true`
+- `constraints.contains_trade_orders`: `false`
+- `constraints.contains_cash_amounts`: `false`
+- `constraints.contains_share_counts`: `false`
+
+## `/api/latest`
+
+用途：输出当前研究成果。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.research.v1`
+- `summary.etf_count`
+- `summary.research_run_count`
+- `summary.valuation_run_count`
+- `etfs[].research.profile`
+- `etfs[].research.valuation`
+- `etfs[].research.valuation_history`
+- `etfs[].decision_matrix`
+
+## `/research?etf={code}`
+
+用途：从外部系统跳转到 ETF 研究页面。
+
+行为：
+
+- 如果本地已有该 ETF 页面、研究记录或队列任务，返回 `303` 跳转到 `/etfs/{code}`。
+- 如果本地没有该 ETF，创建当天主动请求队列批次，再返回 `303` 跳转到 `/etfs/{code}?queued=1`。
+- 不直接执行深研，不绕过队列领取和单标的单任务规则。
+- 兼容 `code={code}` 查询参数。
+
+## `/api/queue`
+
+用途：输出本地研究队列。
+
+队列任务类型：
+
+- `profile`: ETF 产品结构深研
+- `valuation`: ETF 估值刷新
+
+来源字段：
+
+- `source_type`: `trackable_leader` 或 `manual_request`
+- `source_label`: `可跟踪龙头` 或 `其他请求`
+
+## `/api/etfs/{code}`
+
+用途：输出单只 ETF 页面数据。
+
+关键字段：
+
+- `leader_summary`: 入口摘要，没有则为 `null`
+- `research_runs`: 研究历史
+- `decision_matrix`: 产品信号与 ETF 估值适配矩阵
+- `queue`: 队列状态
+- `trackable_history`: 历史入口记录
+
+## 约束
+
+所有接口只读，不包含交易指令、现金金额或份额数量。

@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import re
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictStr, model_validator
+
+from core.task.state import compute_task_run_id
+
+
+ETF_CODE_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+
+TaskType = Literal["profile", "valuation"]
+RunStatus = Literal["complete", "draft", "blocked"]
+Confidence = Literal["low", "medium", "high"]
+BasePositionView = Literal["不适合底仓", "观察", "工具仓可用", "底仓候选", "估值或拥挤暂缓"]
+
+
+class StrictSchemaModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        validate_assignment=True,
+    )
+
+
+class EvidenceItem(StrictSchemaModel):
+    source: StrictStr
+    date: StrictStr | None = None
+    url: StrictStr | None = None
+    purpose: StrictStr
+    detail: StrictStr
+
+
+class ETFProductProfile(StrictSchemaModel):
+    fund_type: StrictStr
+    tracking_index: StrictStr | None = None
+    asset_class: StrictStr
+    portfolio_role: StrictStr
+    fee_note: StrictStr
+    liquidity_note: StrictStr
+    tracking_note: StrictStr
+
+
+class ETFHoldingsProfile(StrictSchemaModel):
+    holdings_disclosure_date: StrictStr | None = None
+    top_holdings: list[StrictStr] = Field(default_factory=list)
+    concentration_note: StrictStr
+    overlap_note: StrictStr
+    disclosure_lag_note: StrictStr
+
+
+class ETFValuation(StrictSchemaModel):
+    current_price: StrictFloat | None = None
+    nav: StrictFloat | None = None
+    premium_discount: StrictFloat | None = None
+    underlying_pe: StrictFloat | None = None
+    underlying_pb: StrictFloat | None = None
+    valuation_percentile: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    reference_value_low: StrictFloat | None = None
+    reference_value_mid: StrictFloat | None = None
+    reference_value_high: StrictFloat | None = None
+    unit: StrictStr = "CNY/fund_share"
+    method: StrictStr
+    confidence: Confidence
+    key_assumptions: list[StrictStr] = Field(default_factory=list)
+    engine_version: StrictStr | None = None
+    undervalued_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    liquidity_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    tracking_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    portfolio_role_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+    risk_adjusted_score: StrictFloat | None = Field(default=None, ge=0.0, le=100.0)
+
+    @model_validator(mode="after")
+    def validate_range_order(self) -> ETFValuation:
+        values = [self.reference_value_low, self.reference_value_mid, self.reference_value_high]
+        if all(value is not None for value in values):
+            low, mid, high = values
+            if not (low <= mid <= high):
+                raise ValueError("reference value range must satisfy low <= mid <= high")
+        elif any(value is not None for value in values):
+            raise ValueError("reference value range must provide low, mid, and high together")
+        return self
+
+
+class ETFRisk(StrictSchemaModel):
+    liquidity_risk: StrictStr
+    tracking_risk: StrictStr
+    concentration_risk: StrictStr
+    sentiment_risk: StrictStr
+    invalidation_conditions: list[StrictStr] = Field(default_factory=list)
+
+
+class ETFConclusion(StrictSchemaModel):
+    grade: BasePositionView
+    confidence: StrictFloat = Field(ge=0.0, le=1.0)
+    summary: StrictStr
+
+
+class ETFResearchReport(StrictSchemaModel):
+    schema_version: Literal["etf_research_report.v1"] = "etf_research_report.v1"
+    report_version: StrictStr | None = None
+    report_hash: StrictStr | None = None
+    run_id: StrictStr | None = None
+    etf_code: StrictStr
+    etf_name: StrictStr
+    source_report_id: StrictStr | None = None
+    task_type: TaskType
+    research_date: StrictStr
+    status: RunStatus = "complete"
+    title: StrictStr
+    summary: StrictStr
+    product_profile: ETFProductProfile
+    holdings_profile: ETFHoldingsProfile
+    valuation: ETFValuation
+    base_position_view: BasePositionView
+    risk: ETFRisk
+    conclusion: ETFConclusion
+    evidence: list[EvidenceItem] = Field(min_length=1)
+    assumptions: list[StrictStr] = Field(default_factory=list)
+    data_gaps: list[StrictStr] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_report(self) -> ETFResearchReport:
+        if not ETF_CODE_RE.match(self.etf_code):
+            raise ValueError("etf_code must match 000000.SH/SZ/BJ")
+        if not DATE_RE.match(self.research_date):
+            raise ValueError("research_date must use YYYY-MM-DD")
+        if self.report_hash is not None and not HASH_RE.match(self.report_hash):
+            raise ValueError("report_hash must be a 64-character lowercase sha256 hex digest")
+        if self.base_position_view != self.conclusion.grade:
+            raise ValueError("base_position_view must equal conclusion.grade")
+
+        values = (
+            self.valuation.reference_value_low,
+            self.valuation.reference_value_mid,
+            self.valuation.reference_value_high,
+        )
+        has_range = all(value is not None for value in values)
+        if self.task_type == "profile" and has_range:
+            raise ValueError("profile research must not write reference value range")
+        if self.task_type == "valuation" and not has_range:
+            raise ValueError("valuation research must include a complete reference value range")
+
+        expected_run_id = compute_task_run_id(self.etf_code, self.task_type, self.research_date, self.schema_version)
+        if self.run_id is None:
+            object.__setattr__(self, "run_id", expected_run_id)
+        elif self.run_id != expected_run_id:
+            raise ValueError("run_id must equal hash(etf_code + task_type + date + schema_version)")
+        return self
+
+
+def validate_etf_research_report(raw_output: dict[str, Any]) -> ETFResearchReport:
+    return ETFResearchReport(**raw_output)
