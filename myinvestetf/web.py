@@ -651,6 +651,18 @@ def metric(label: str, value: object, unit: str = "") -> str:
     </div>"""
 
 
+def compact_metric(label: str, value: object, unit: str = "") -> str:
+    shown = fmt_num(value) if isinstance(value, (int, float)) else esc(value or "待入库")
+    tooltip_title, tooltip_body = metric_explanation(label, value)
+    signal_class, signal_label = metric_signal(label, value)
+    tooltip_text = f"{tooltip_title}：{tooltip_body}"
+    return f"""<div class="compact-metric compact-metric-{esc(signal_class)}" title="{esc(tooltip_text)}" aria-label="{esc(label)}：{esc(shown)}{esc(unit)}。{esc(signal_label)}">
+      <span>{esc(label)}</span>
+      <strong>{shown}{esc(unit)}</strong>
+      <small>{esc(signal_label)}</small>
+    </div>"""
+
+
 def xueqiu_url_for_code(code: object, preferred_url: object | None = None) -> str:
     if preferred_url:
         return str(preferred_url)
@@ -742,9 +754,12 @@ def render_home() -> bytes:
         category_key = leader_category_key(row)
         cards.append(
             f"""<article class="etf-card">
-        <div>
-          <a class="etf-title" href="/etfs/{esc(row['code'])}">{esc(row['name'])}</a>
-          <div class="etf-code">{xueqiu_etf_link(row['code'], row['xueqiu_url'])}</div>
+        <div class="etf-card-top">
+          <div>
+            <a class="etf-title" href="/etfs/{esc(row['code'])}">{esc(row['name'])}</a>
+            <div class="etf-code">{xueqiu_etf_link(row['code'], row['xueqiu_url'])}</div>
+          </div>
+          <a class="text-link card-action" href="/etfs/{esc(row['code'])}">查看</a>
         </div>
         <div class="badges">
           <span class="badge badge-strong">{esc(row['deep_rating'] or '')} {esc(row['deep_label'] or '')}</span>
@@ -752,13 +767,12 @@ def render_home() -> bytes:
           <span class="badge">{esc(model_info.get('valuation_model_label'))}</span>
           <span class="badge">{esc(model_info.get('sleeve_label'))}</span>
         </div>
-        <div class="card-grid">
-          {metric("深研", row["deep_score"])}
-          {metric("收盘", market.get("close"))}
-          {metric("PE TTM", market.get("pe_ttm"))}
-          {metric("估值安全", scores.get("valuation_safety"))}
+        <div class="compact-metrics">
+          {compact_metric("深研", row["deep_score"])}
+          {compact_metric("收盘", market.get("close"))}
+          {compact_metric("PE TTM", market.get("pe_ttm"))}
+          {compact_metric("估值安全", scores.get("valuation_safety"))}
         </div>
-        <a class="text-link" href="/etfs/{esc(row['code'])}">查看ETF页</a>
       </article>"""
         )
 
