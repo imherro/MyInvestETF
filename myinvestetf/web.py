@@ -560,21 +560,48 @@ def xueqiu_etf_link(code: object, preferred_url: object | None = None) -> str:
     )
 
 
+def queue_display_rows(queue: list[object]) -> list[dict[str, object]]:
+    rows_by_code: dict[str, dict[str, object]] = {}
+    for row in queue:
+        code = str(row["code"])
+        item = rows_by_code.setdefault(
+            code,
+            {
+                "priority": row["priority"],
+                "stage": row["stage"],
+                "source_labels": [],
+                "code": code,
+                "name": row["name"],
+                "tasks": [],
+                "keywords": [],
+            },
+        )
+        label = queue_source_label(row["source_type"])
+        if label not in item["source_labels"]:
+            item["source_labels"].append(label)
+        task_label = f"{row['task_type']}:{row['status']}"
+        item["tasks"].append(task_label)
+        keyword = str(row["task_keyword"] or "")
+        if keyword and keyword not in item["keywords"]:
+            item["keywords"].append(keyword)
+    return list(rows_by_code.values())
+
+
 def render_queue_rows(queue: list[object]) -> str:
     if not queue:
-        return '<tr><td colspan="8" class="empty-cell">当前队列为空。</td></tr>'
+        return '<tr><td colspan="7" class="empty-cell">当前队列为空。</td></tr>'
+    rows = queue_display_rows(queue)
     return "".join(
         f"""<tr>
       <td>{esc(row['priority'])}</td>
       <td>{esc(row['stage'])}</td>
-      <td>{esc(queue_source_label(row['source_type']))}</td>
+      <td>{esc(' / '.join(row['source_labels']))}</td>
       <td>{xueqiu_etf_link(row['code'])}</td>
       <td>{etf_page_link(row['code'], row['name'])}</td>
-      <td>{esc(row['task_type'])}</td>
-      <td>{esc(row['status'])}</td>
-      <td>{esc(row['task_keyword'])}</td>
+      <td>{esc(' / '.join(row['tasks']))}</td>
+      <td>{esc('；'.join(row['keywords']))}</td>
     </tr>"""
-        for row in queue
+        for row in rows
     )
 
 
@@ -618,6 +645,7 @@ def render_home() -> bytes:
       </article>"""
         )
 
+    queue_summary_count = len(queue_display_rows(queue))
     queue_rows = render_queue_rows(queue)
     body = f"""
     <section class="page-band">
@@ -640,9 +668,10 @@ def render_home() -> bytes:
     </section>
     <section class="content section-block">
       <h2>ETF深研队列</h2>
+      <p class="muted">按 ETF 合并显示：{esc(queue_summary_count)} 只 ETF，{esc(len(queue))} 个研究任务。</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>优先级</th><th>阶段</th><th>来源</th><th>代码</th><th>名称</th><th>类型</th><th>状态</th><th>任务关键词</th></tr></thead>
+          <thead><tr><th>优先级</th><th>阶段</th><th>来源</th><th>代码</th><th>名称</th><th>任务状态</th><th>任务关键词</th></tr></thead>
           <tbody>{queue_rows}</tbody>
         </table>
       </div>

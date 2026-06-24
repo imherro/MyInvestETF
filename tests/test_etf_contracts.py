@@ -29,6 +29,7 @@ from myinvestetf.leader_index import (
 from myinvestetf.web import (
     decision_matrix_summary,
     leader_to_summary,
+    render_queue_rows,
     render_layout,
     valuation_signal_summary,
     xueqiu_etf_link,
@@ -235,6 +236,34 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn('<a href="/api/latest">研究成果API</a>', page)
         self.assertIn('href="https://theme.okbbc.com/api/latest"', page)
         self.assertIn('target="_blank" rel="noopener noreferrer">上游主线</a>', page)
+
+    def test_home_queue_rows_are_grouped_by_etf(self) -> None:
+        rows = [
+            {
+                "priority": 1,
+                "stage": 1,
+                "source_type": "trackable_leader",
+                "code": "588170.SH",
+                "name": "华夏上证科创板半导体材料设备主题ETF",
+                "task_type": "profile",
+                "status": "pending",
+                "task_keyword": "profile keyword",
+            },
+            {
+                "priority": 1,
+                "stage": 2,
+                "source_type": "trackable_leader",
+                "code": "588170.SH",
+                "name": "华夏上证科创板半导体材料设备主题ETF",
+                "task_type": "valuation",
+                "status": "pending",
+                "task_keyword": "valuation keyword",
+            },
+        ]
+        html = render_queue_rows(rows)
+        self.assertEqual(html.count("<tr>"), 1)
+        self.assertIn("profile:pending / valuation:pending", html)
+        self.assertIn("profile keyword；valuation keyword", html)
 
     def test_leader_summary_links_to_etf_routes(self) -> None:
         row = {
