@@ -35,6 +35,9 @@ from .leader_index import enqueue_requested_etf
 
 ETF_CODE_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 BULL_MARKET_START_DATE = "2024-09-24"
+SYSTEM_NAME = "MyInvestETF"
+SYSTEM_VERSION = "0.1.0"
+SYSTEM_DESCRIPTION = "ETF 研究、类型化估值、研究队列和只读 Web 展示系统。"
 
 
 def esc(value: object) -> str:
@@ -780,6 +783,176 @@ def render_queue_rows(queue: list[object]) -> str:
     )
 
 
+def _api_endpoint(
+    method: str,
+    path: str,
+    purpose: str,
+    parameters: list[dict[str, object]],
+    returns: str,
+    read_only: bool,
+) -> dict[str, object]:
+    return {
+        "method": method,
+        "path": path,
+        "purpose": purpose,
+        "parameters": parameters,
+        "returns": returns,
+        "read_only": read_only,
+    }
+
+
+def api_catalog(base_url: str) -> dict[str, object]:
+    groups = [
+        {
+            "name": "文档入口",
+            "description": "接口目录、OpenAPI 描述和轻量文档页面。",
+            "endpoints": [
+                _api_endpoint("GET", "/api", "返回当前系统全部公开接口目录。", [], "接口目录 JSON。", True),
+                _api_endpoint("GET", "/docs", "浏览器文档入口，指向 /api 和 /openapi.json。", [], "HTML 文档页。", True),
+                _api_endpoint("GET", "/redoc", "ReDoc 风格文档入口，当前提供轻量 HTML 文档页。", [], "HTML 文档页。", True),
+                _api_endpoint("GET", "/openapi.json", "返回当前公开接口的 OpenAPI 3.0 描述。", [], "OpenAPI JSON。", True),
+            ],
+        },
+        {
+            "name": "Web 页面",
+            "description": "给人看的页面入口；主动研究入口可能写入本地队列。",
+            "endpoints": [
+                _api_endpoint("GET", "/", "ETF 首页，展示研究代表、队列和接口说明。", [], "HTML 页面。", True),
+                _api_endpoint(
+                    "GET",
+                    "/etfs/{code}",
+                    "单只 ETF 详情页，展示估值图、研究历史、队列状态和风险说明。",
+                    [{"name": "code", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "HTML 页面。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/research",
+                    "主动研究入口；若 ETF 尚未入库，会写入本地研究队列并跳转详情页。",
+                    [
+                        {"name": "etf", "in": "query", "required": True, "description": "ETF 代码，例如 510300.SH。"},
+                        {"name": "name", "in": "query", "required": False, "description": "ETF 名称，用于新请求入队展示。"},
+                    ],
+                    "303 跳转到 /etfs/{code}；可能创建本地队列任务。",
+                    False,
+                ),
+            ],
+        },
+        {
+            "name": "当前数据",
+            "description": "当前 ETF 池、当前主结果和当前列表。",
+            "endpoints": [
+                _api_endpoint("GET", "/api/index", "对外主结果接口，返回当前 ETF 池和入口约束。", [], "myinvestetf.index.v1 JSON。", True),
+                _api_endpoint("GET", "/api/etfs", "返回当前 ETF 列表及当前报告摘要。", [], "report 与 items 数组。", True),
+            ],
+        },
+        {
+            "name": "历史数据",
+            "description": "单只 ETF 的研究历史、参考价格区间历史和队列历史。",
+            "endpoints": [
+                _api_endpoint(
+                    "GET",
+                    "/api/etfs/{code}",
+                    "返回单只 ETF 的 leader、研究运行、决策矩阵、队列状态和历史记录。",
+                    [{"name": "code", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "leader_summary、research_runs、decision_matrix、queue、trackable_history。",
+                    True,
+                ),
+            ],
+        },
+        {
+            "name": "分析结果",
+            "description": "当前完整深研结果和类型化估值输出。",
+            "endpoints": [
+                _api_endpoint("GET", "/api/latest", "对外研究成果接口，汇总所有 ETF 的最新深研、参考价格历史和决策矩阵。", [], "myinvestetf.research.v2 JSON。", True),
+            ],
+        },
+        {
+            "name": "系统状态",
+            "description": "本地研究队列和任务状态。",
+            "endpoints": [
+                _api_endpoint("GET", "/api/queue", "返回本地 ETF 深研队列。", [], "items 队列数组。", True),
+            ],
+        },
+    ]
+    total_endpoints = sum(len(group["endpoints"]) for group in groups)
+    return {
+        "schema_version": "myinvestetf.api_catalog.v1",
+        "system": {
+            "name": SYSTEM_NAME,
+            "version": SYSTEM_VERSION,
+            "description": SYSTEM_DESCRIPTION,
+        },
+        "base_url": base_url,
+        "docs": {
+            "docs": "/docs",
+            "redoc": "/redoc",
+            "openapi_json": "/openapi.json",
+        },
+        "recommended_entrypoints": [
+            {"path": "/api/latest", "reason": "读取当前 ETF 深研成果和决策矩阵。"},
+            {"path": "/api/index", "reason": "读取当前 ETF 池和入口约束。"},
+            {"path": "/api/queue", "reason": "读取当前待研究队列。"},
+            {"path": "/api/etfs/{code}", "reason": "读取单只 ETF 详情、历史和队列状态。"},
+        ],
+        "safety": {
+            "api_catalog_read_only": True,
+            "api_endpoints_read_only": True,
+            "non_read_only_public_routes": ["/research"],
+            "boundaries": [
+                "/api 只返回接口说明，不触发重计算、写入、交易、同步或外部请求。",
+                "所有 /api/* 接口只读取本地数据库和内存生成的说明。",
+                "系统不提供交易下单、现金金额、份额数量或券商写入接口。",
+                "/research 是 Web 主动研究入口，可能写入本地研究队列；它不属于 /api 只读接口。",
+            ],
+        },
+        "groups": groups,
+        "total_endpoints": total_endpoints,
+    }
+
+
+def render_api_overview(catalog: dict[str, object]) -> str:
+    entrypoints = catalog.get("recommended_entrypoints") if isinstance(catalog, dict) else []
+    groups = catalog.get("groups") if isinstance(catalog, dict) else []
+    safety = catalog.get("safety") if isinstance(catalog, dict) else {}
+    entry_html = "".join(
+        f"<li><code>{esc(item.get('path'))}</code>：{esc(item.get('reason'))}</li>"
+        for item in (entrypoints if isinstance(entrypoints, list) else [])
+        if isinstance(item, dict)
+    )
+    group_html = "".join(
+        f"<li>{esc(group.get('name'))} <span>{esc(len(group.get('endpoints') or []))} 个</span></li>"
+        for group in (groups if isinstance(groups, list) else [])
+        if isinstance(group, dict)
+    )
+    boundary_items = safety.get("boundaries") if isinstance(safety, dict) else []
+    boundary_html = "".join(f"<li>{esc(item)}</li>" for item in (boundary_items if isinstance(boundary_items, list) else []))
+    return f"""<section class="content section-block api-overview">
+      <div class="section-heading-row">
+        <div>
+          <h2>接口说明</h2>
+          <p class="muted">统一接口目录：<a class="text-link" href="/api"><code>GET /api</code></a>，共 {esc(catalog.get('total_endpoints'))} 个公开入口。</p>
+        </div>
+        <span class="section-count">{esc(catalog.get('total_endpoints'))} 个</span>
+      </div>
+      <div class="api-overview-grid">
+        <div>
+          <h3>推荐入口</h3>
+          <ul>{entry_html}</ul>
+        </div>
+        <div>
+          <h3>分组</h3>
+          <ul>{group_html}</ul>
+        </div>
+        <div>
+          <h3>安全边界</h3>
+          <ul>{boundary_html}</ul>
+        </div>
+      </div>
+    </section>"""
+
+
 def is_broad_index_leader(row: object) -> bool:
     return leader_model_info(row).get("valuation_model_type") == "broad_index"
 
@@ -875,6 +1048,7 @@ def render_home() -> bytes:
 
     queue_summary_count = len(queue_display_rows(queue))
     queue_rows = render_queue_rows(queue)
+    api_overview_section = render_api_overview(api_catalog(""))
     body = f"""
     <section class="page-band">
       <div class="content">
@@ -932,6 +1106,7 @@ def render_home() -> bytes:
         </table>
       </div>
     </section>
+    {api_overview_section}
 """
     return render_layout("可跟踪ETF", body)
 
@@ -1999,14 +2174,127 @@ def api_queue() -> bytes:
     return json.dumps({"items": rows}, ensure_ascii=False).encode("utf-8")
 
 
+def api_catalog_json(base_url: str) -> bytes:
+    return json.dumps(api_catalog(base_url), ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def openapi_json(base_url: str) -> bytes:
+    catalog = api_catalog(base_url)
+    paths: dict[str, object] = {}
+    for group in catalog["groups"]:  # type: ignore[index]
+        if not isinstance(group, dict):
+            continue
+        for endpoint in group.get("endpoints") or []:
+            if not isinstance(endpoint, dict):
+                continue
+            method = str(endpoint.get("method") or "GET").lower()
+            path = str(endpoint.get("path") or "")
+            parameters = []
+            for parameter in endpoint.get("parameters") or []:
+                if not isinstance(parameter, dict):
+                    continue
+                parameters.append(
+                    {
+                        "name": parameter.get("name"),
+                        "in": parameter.get("in"),
+                        "required": bool(parameter.get("required")),
+                        "description": parameter.get("description"),
+                        "schema": {"type": "string"},
+                    }
+                )
+            paths.setdefault(path, {})
+            path_item = paths[path]
+            if isinstance(path_item, dict):
+                response_code = "303" if str(endpoint.get("returns") or "").startswith("303") else "200"
+                path_item[method] = {
+                    "summary": endpoint.get("purpose"),
+                    "description": f"返回内容：{endpoint.get('returns')}；只读：{endpoint.get('read_only')}",
+                    "parameters": parameters,
+                    "responses": {
+                        response_code: {
+                            "description": str(endpoint.get("returns") or "OK"),
+                        }
+                    },
+                }
+    payload = {
+        "openapi": "3.0.3",
+        "info": {
+            "title": SYSTEM_NAME,
+            "version": SYSTEM_VERSION,
+            "description": SYSTEM_DESCRIPTION,
+        },
+        "servers": [{"url": base_url or "/"}],
+        "paths": paths,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def docs_html(title: str, base_url: str) -> bytes:
+    catalog = api_catalog(base_url)
+    groups = catalog.get("groups")
+    group_items = []
+    if isinstance(groups, list):
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            endpoints = group.get("endpoints") or []
+            endpoint_items = "".join(
+                f"<li><code>{esc(ep.get('method'))} {esc(ep.get('path'))}</code>：{esc(ep.get('purpose'))}</li>"
+                for ep in endpoints
+                if isinstance(ep, dict)
+            )
+            group_items.append(
+                f"""<section>
+        <h2>{esc(group.get('name'))}</h2>
+        <p>{esc(group.get('description'))}</p>
+        <ul>{endpoint_items}</ul>
+      </section>"""
+            )
+    html_text = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{esc(title)} | {SYSTEM_NAME}</title>
+  <link rel="stylesheet" href="/static/styles.css?v={STATIC_ASSET_VERSION}">
+</head>
+<body>
+  <main class="content docs-page">
+    <h1>{esc(title)}</h1>
+    <p class="muted">{esc(SYSTEM_DESCRIPTION)}</p>
+    <p><a class="text-link" href="/api"><code>GET /api</code></a> · <a class="text-link" href="/openapi.json"><code>/openapi.json</code></a></p>
+    {"".join(group_items)}
+  </main>
+</body>
+</html>"""
+    return html_text.encode("utf-8")
+
+
 class MyInvestETFHandler(BaseHTTPRequestHandler):
     server_version = "MyInvestETF/0.1"
+
+    def request_base_url(self) -> str:
+        host = self.headers.get("Host") or f"{DEFAULT_HOST}:{DEFAULT_PORT}"
+        proto = self.headers.get("X-Forwarded-Proto") or "http"
+        return f"{proto}://{host}"
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
         if path == "/":
             self.send_bytes(render_home(), "text/html; charset=utf-8")
+            return
+        if path == "/api":
+            self.send_bytes(api_catalog_json(self.request_base_url()), "application/json; charset=utf-8")
+            return
+        if path == "/openapi.json":
+            self.send_bytes(openapi_json(self.request_base_url()), "application/json; charset=utf-8")
+            return
+        if path == "/docs":
+            self.send_bytes(docs_html("接口文档", self.request_base_url()), "text/html; charset=utf-8")
+            return
+        if path == "/redoc":
+            self.send_bytes(docs_html("ReDoc", self.request_base_url()), "text/html; charset=utf-8")
             return
         if path == "/research":
             self.handle_research_gateway(parsed.query)

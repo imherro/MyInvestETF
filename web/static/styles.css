@@ -791,6 +791,54 @@ tr:last-child td {
   padding-left: 20px;
 }
 
+.api-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.api-overview-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.api-overview-grid h3,
+.docs-page h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.api-overview-grid ul,
+.docs-page ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.api-overview-grid li,
+.docs-page li {
+  margin: 5px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.api-overview-grid li span {
+  color: var(--muted);
+}
+
+.docs-page {
+  padding: 28px 0 40px;
+}
+
+.docs-page section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
 @media (max-width: 860px) {
   .page-title-row {
     align-items: stretch;
@@ -808,7 +856,8 @@ tr:last-child td {
   .summary-grid,
   .signal-matrix,
   .signal-grid,
-  .reference-formula-grid {
+  .reference-formula-grid,
+  .api-overview-grid {
     grid-template-columns: 1fr;
   }
 

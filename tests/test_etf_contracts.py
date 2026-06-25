@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -29,8 +30,11 @@ from myinvestetf.leader_index import (
     report_meta,
 )
 from myinvestetf.web import (
+    api_catalog,
     decision_matrix_summary,
     leader_to_summary,
+    openapi_json,
+    render_api_overview,
     render_etf_cards,
     render_reference_price_explanation,
     render_signal_matrix,
@@ -503,6 +507,47 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual(summary["category_key"], "沪深300")
         self.assertEqual(summary["links"]["page"], "/etfs/510300.SH")
         self.assertEqual(summary["links"]["api"], "/api/etfs/510300.SH")
+
+    def test_api_catalog_lists_public_endpoints_and_safety(self) -> None:
+        catalog = api_catalog("http://127.0.0.1:8017")
+        groups = catalog["groups"]
+        endpoints = [
+            endpoint
+            for group in groups
+            for endpoint in group["endpoints"]
+        ]
+        paths = {endpoint["path"]: endpoint for endpoint in endpoints}
+
+        self.assertEqual(catalog["system"]["name"], "MyInvestETF")
+        self.assertEqual(catalog["base_url"], "http://127.0.0.1:8017")
+        self.assertEqual(catalog["docs"]["docs"], "/docs")
+        self.assertEqual(catalog["docs"]["redoc"], "/redoc")
+        self.assertEqual(catalog["docs"]["openapi_json"], "/openapi.json")
+        self.assertEqual(catalog["total_endpoints"], len(endpoints))
+        self.assertEqual(
+            {group["name"] for group in groups},
+            {"文档入口", "Web 页面", "当前数据", "历史数据", "分析结果", "系统状态"},
+        )
+        self.assertTrue(paths["/api"]["read_only"])
+        self.assertFalse(paths["/research"]["read_only"])
+        self.assertIn("/api/latest", [item["path"] for item in catalog["recommended_entrypoints"]])
+        self.assertIn("不触发重计算", " ".join(catalog["safety"]["boundaries"]))
+
+    def test_openapi_json_contains_catalog_paths(self) -> None:
+        payload = openapi_json("http://127.0.0.1:8017").decode("utf-8")
+        parsed = json.loads(payload)
+        self.assertEqual(parsed["openapi"], "3.0.3")
+        self.assertIn("/api", parsed["paths"])
+        self.assertIn("/api/latest", parsed["paths"])
+        self.assertIn("/api/etfs/{code}", parsed["paths"])
+        self.assertIn("303", parsed["paths"]["/research"]["get"]["responses"])
+
+    def test_home_api_overview_mentions_entrypoints_and_boundaries(self) -> None:
+        html = render_api_overview(api_catalog(""))
+        self.assertIn("接口说明", html)
+        self.assertIn("/api/latest", html)
+        self.assertIn("安全边界", html)
+        self.assertIn("不触发重计算", html)
 
     def test_valuation_signal_reads_etf_scores(self) -> None:
         row = {
