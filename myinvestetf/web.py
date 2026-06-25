@@ -1400,6 +1400,23 @@ def render_signal_matrix(
       </section>"""
 
 
+def valuation_liquidity_text(latest: object | None, valuation_signal: dict[str, object]) -> str:
+    if not latest:
+        return "等待ETF完整深研入库。"
+    valuation_range = valuation_signal.get("valuation_range")
+    method = None
+    if isinstance(valuation_range, dict):
+        method = valuation_range.get("method")
+    method = method or _row_value(latest, "valuation_method") or "待入库"
+    return (
+        f"方法 {method}; "
+        f"估值分位 {fmt_percentile(valuation_signal.get('valuation_percentile'))}; "
+        f"折溢价 {fmt_num(valuation_signal.get('premium_discount'), 4)}; "
+        f"流动性分 {fmt_num(valuation_signal.get('liquidity_score'))}; "
+        f"跟踪分 {fmt_num(valuation_signal.get('tracking_score'))}"
+    )
+
+
 def render_trackable_history(rows: list[object]) -> str:
     if not rows:
         return """<section class="section-block">
@@ -1570,7 +1587,7 @@ def render_etf_page(code: str) -> bytes:
         </div>
         <div class="section-block">
           <h2>估值与流动性</h2>
-          <p>{esc(latest.get('annual_growth') or '等待ETF完整深研入库。')}</p>
+          <p>{esc(valuation_liquidity_text(latest if latest else None, valuation_signal))}</p>
         </div>
       </section>
       <section class="two-col">
