@@ -393,7 +393,11 @@ def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
             normalized["valuation_model_type"] = model_type
             normalized["sleeve_key"] = sleeve_for_valuation_model(model_type)
             clean_items.append(normalized)
-    return _deduplicate_by_category(clean_items)
+    return clean_items
+
+
+def research_representatives(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _deduplicate_by_category(items)
 
 
 def report_meta(payload: dict[str, Any]) -> dict[str, Any]:
@@ -620,6 +624,7 @@ def ingest_payload(
     init_db(db_target)
     report = report_meta(payload)
     items = primary_items(payload)
+    research_items = research_representatives(items)
     keep_codes = [item["code"] for item in items]
     now = utc_now()
     with closing(connect(db_target)) as conn:
@@ -635,11 +640,12 @@ def ingest_payload(
             raw_path=raw_path,
         )
         prune_trackable_report(conn, report_id=report["report_id"], keep_codes=keep_codes)
+        for item in sorted(items, key=lambda row: row.get("score") or row.get("deep_score") or 0, reverse=True):
+            upsert_trackable_leader(conn, report_id=report["report_id"], item=item, created_at=now)
         for priority, item in enumerate(
-            sorted(items, key=lambda row: row.get("score") or row.get("deep_score") or 0, reverse=True),
+            sorted(research_items, key=lambda row: row.get("score") or row.get("deep_score") or 0, reverse=True),
             start=1,
         ):
-            upsert_trackable_leader(conn, report_id=report["report_id"], item=item, created_at=now)
             if is_cash_like_etf(item):
                 continue
             upsert_queue_item(
@@ -661,6 +667,9 @@ def ingest_payload(
         "report_id": report["report_id"],
         "basis_date": report.get("basis_date"),
         "count": len(items),
+        "research_count": len(research_items),
         "codes": [item["code"] for item in items],
         "names": [item["name"] for item in items],
+        "research_codes": [item["code"] for item in research_items],
+        "research_names": [item["name"] for item in research_items],
     }

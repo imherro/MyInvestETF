@@ -22,6 +22,7 @@ from myinvestetf.leader_index import (
     enqueue_requested_etf,
     ingest_payload,
     primary_items,
+    research_representatives,
     report_meta,
 )
 from myinvestetf.web import (
@@ -79,7 +80,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual(items[0]["deep_label"], "可跟踪主线ETF")
         self.assertEqual(items[0]["scores"]["mainline_strength"], 98.751705)
 
-    def test_primary_items_keeps_largest_amount_per_etf_category(self) -> None:
+    def test_primary_items_keeps_all_upstream_etfs(self) -> None:
         payload = {
             "report_id": "mainline_review_2026-06-23_173855",
             "result": {
@@ -119,8 +120,53 @@ class ETFContractTests(unittest.TestCase):
             },
         }
         items = primary_items(payload)
-        self.assertEqual({item["code"] for item in items}, {"588200.SH", "512880.SH"})
-        self.assertEqual({item["category_key"] for item in items}, {"半导体芯片", "证券金融"})
+        self.assertEqual(
+            [item["code"] for item in items],
+            ["588170.SH", "588710.SH", "588200.SH", "159842.SZ", "512880.SH"],
+        )
+
+    def test_research_representatives_keep_largest_amount_per_etf_category(self) -> None:
+        payload = {
+            "report_id": "mainline_review_2026-06-23_173855",
+            "result": {
+                "basis_date": "2026-06-23",
+                "etf_top": [
+                    {
+                        "ts_code": "588170.SH",
+                        "name": "华夏上证科创板半导体材料设备主题ETF",
+                        "amount": 100.0,
+                        "score": 95.0,
+                    },
+                    {
+                        "ts_code": "588710.SH",
+                        "name": "华泰柏瑞上证科创板半导体材料设备主题ETF",
+                        "amount": 300.0,
+                        "score": 90.0,
+                    },
+                    {
+                        "ts_code": "588200.SH",
+                        "name": "嘉实上证科创板芯片ETF",
+                        "amount": 900.0,
+                        "score": 89.0,
+                    },
+                    {
+                        "ts_code": "159842.SZ",
+                        "name": "银华中证全指证券公司ETF",
+                        "amount": 10.0,
+                        "score": 92.0,
+                    },
+                    {
+                        "ts_code": "512880.SH",
+                        "name": "国泰中证全指证券公司ETF",
+                        "amount": 500.0,
+                        "score": 91.0,
+                    },
+                ],
+            },
+        }
+        representatives = research_representatives(primary_items(payload))
+        self.assertEqual({item["code"] for item in representatives}, {"588200.SH", "512880.SH"})
+        self.assertEqual({item["category_key"] for item in representatives}, {"半导体芯片", "证券金融"})
 
     def test_research_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}

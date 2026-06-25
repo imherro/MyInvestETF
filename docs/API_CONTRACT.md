@@ -19,7 +19,7 @@ http://127.0.0.1:8017
 - `key_results.primary_output.items[].sleeve_key`: `core_wide_etf`、`mainline_etf`、`defensive_quality` 或 `cash_like`
 - `source.upstream_endpoint`: 默认 `https://theme.okbbc.com/api/latest`
 - `source.upstream_result_path`: 默认 `result.etf_top`，兼容旧 `key_results.primary_output.items`
-- `source.source_policy`: 同一 ETF 投资暴露只保留成交额最大的代表进入本地结果；半导体材料设备、芯片、半导体产业会合并为同一研究类。
+- `source.source_policy`: `/api/index` 保留上游传入的 ETF 全量列表；本地深研队列才按同一投资暴露只保留成交额最大的代表。
 - `links.latest`: `/api/latest`
 - `constraints.read_only`: `true`
 - `constraints.contains_trade_orders`: `false`

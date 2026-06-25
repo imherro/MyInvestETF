@@ -780,6 +780,7 @@ def render_home() -> bytes:
           <div>
             <h1>可跟踪ETF</h1>
             <p class="muted">上游默认来自 <code>theme.okbbc.com/api/latest</code> 的 <code>result.etf_top</code>，并兼容旧 <code>/api/index</code> 结构。</p>
+            <p class="muted">当前上游 ETF 池 {esc(len(leaders))} 只；深研队列按同类成交额最大规则保留 {esc(queue_summary_count)} 只研究代表。</p>
           </div>
           <div class="report-box">
             <span>report_id</span>
@@ -1517,8 +1518,8 @@ def api_index() -> bytes:
             "upstream_result_path": "result.etf_top",
             "compatible_result_path": "key_results.primary_output.items",
             "source_policy": (
-                "default to theme.okbbc.com/api/latest result.etf_top; compatible with legacy /api/index items; "
-                "same ETF category keeps only the largest-turnover representative"
+                "default to theme.okbbc.com/api/latest result.etf_top; /api/index keeps the full upstream ETF list; "
+                "research queue keeps only the largest-turnover representative for each ETF category"
             ),
         },
         "report": dict(report) if report else None,
