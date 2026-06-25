@@ -93,7 +93,8 @@ LLM 负责收集 Tushare 和必要网络补充资料，构建 `assembly_input`�
 
 - 可跟踪 ETF 默认入口为 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf` 和 `result.etf_top`，并兼容旧 `key_results.primary_output.items` 结构。
 - 每条主线至少保留一个 ETF 代表进入研究队列；同一主线内优先选择有成交额且成交额最大的 ETF，缺成交额时使用 `top_etf` 的第一位。
-- 本地补齐上证综指、上证50、沪深300、中证500、中证1000、创业板、科创50 等核心宽基 ETF 研究对象。
+- 本地独立补齐上证综指、上证50、沪深300、中证500、中证1000、创业板、科创50 等核心宽基 ETF 研究对象；宽基研究来源不标记为可跟踪主线龙头。
+- ETF 深研队列先显示核心宽基代表，再显示主线代表；来源分别为 `核心宽基` 和 `主线代表`。
 - Tushare 是 ETF 结构化主源，通过本地 `.env` 读取 token。
 - 优先接口：`fund_basic`、`fund_daily`、`fund_nav`、`fund_share`、`fund_portfolio`、`index_daily`。
 - 网络资料只作为补充证据，必须记录来源、日期和用途。

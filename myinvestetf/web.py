@@ -725,6 +725,43 @@ def render_queue_rows(queue: list[object]) -> str:
     )
 
 
+def is_broad_index_leader(row: object) -> bool:
+    return leader_model_info(row).get("valuation_model_type") == "broad_index"
+
+
+def render_etf_cards(rows: list[object]) -> str:
+    cards = []
+    for row in rows:
+        market = load_json(_row_value(row, "market_json"), {})
+        scores = load_json(_row_value(row, "scores_json"), {})
+        model_info = leader_model_info(row)
+        category_key = leader_category_key(row)
+        cards.append(
+            f"""<article class="etf-card">
+        <div class="etf-card-top">
+          <div>
+            <a class="etf-title" href="/etfs/{esc(_row_value(row, 'code'))}">{esc(_row_value(row, 'name'))}</a>
+            <div class="etf-code">{xueqiu_etf_link(_row_value(row, 'code'), _row_value(row, 'xueqiu_url'))}</div>
+          </div>
+          <a class="text-link card-action" href="/etfs/{esc(_row_value(row, 'code'))}">查看</a>
+        </div>
+        <div class="badges">
+          <span class="badge badge-strong">{esc(_row_value(row, 'deep_rating') or '')} {esc(_row_value(row, 'deep_label') or '')}</span>
+          <span class="badge">{esc(category_key)}</span>
+          <span class="badge">{esc(model_info.get('valuation_model_label'))}</span>
+          <span class="badge">{esc(model_info.get('sleeve_label'))}</span>
+        </div>
+        <div class="compact-metrics">
+          {compact_metric("深研", _row_value(row, "deep_score"))}
+          {compact_metric("收盘", market.get("close") if isinstance(market, dict) else None)}
+          {compact_metric("PE TTM", market.get("pe_ttm") if isinstance(market, dict) else None)}
+          {compact_metric("估值安全", scores.get("valuation_safety") if isinstance(scores, dict) else None)}
+        </div>
+      </article>"""
+        )
+    return "".join(cards) if cards else '<p class="empty">暂无代表 ETF。</p>'
+
+
 def render_home() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         report = latest_report(conn)
@@ -751,35 +788,8 @@ def render_home() -> bytes:
     if not display_leaders:
         display_leaders = leaders
 
-    cards = []
-    for row in display_leaders:
-        market = load_json(row["market_json"], {})
-        scores = load_json(row["scores_json"], {})
-        model_info = leader_model_info(row)
-        category_key = leader_category_key(row)
-        cards.append(
-            f"""<article class="etf-card">
-        <div class="etf-card-top">
-          <div>
-            <a class="etf-title" href="/etfs/{esc(row['code'])}">{esc(row['name'])}</a>
-            <div class="etf-code">{xueqiu_etf_link(row['code'], row['xueqiu_url'])}</div>
-          </div>
-          <a class="text-link card-action" href="/etfs/{esc(row['code'])}">查看</a>
-        </div>
-        <div class="badges">
-          <span class="badge badge-strong">{esc(row['deep_rating'] or '')} {esc(row['deep_label'] or '')}</span>
-          <span class="badge">{esc(category_key)}</span>
-          <span class="badge">{esc(model_info.get('valuation_model_label'))}</span>
-          <span class="badge">{esc(model_info.get('sleeve_label'))}</span>
-        </div>
-        <div class="compact-metrics">
-          {compact_metric("深研", row["deep_score"])}
-          {compact_metric("收盘", market.get("close"))}
-          {compact_metric("PE TTM", market.get("pe_ttm"))}
-          {compact_metric("估值安全", scores.get("valuation_safety"))}
-        </div>
-      </article>"""
-        )
+    broad_leaders = [row for row in display_leaders if is_broad_index_leader(row)]
+    mainline_leaders = [row for row in display_leaders if not is_broad_index_leader(row)]
 
     queue_summary_count = len(queue_display_rows(queue))
     queue_rows = render_queue_rows(queue)
@@ -790,7 +800,7 @@ def render_home() -> bytes:
           <div>
             <h1>ETF研究代表</h1>
             <p class="muted">ETF 池来自 <code>theme_ranking.top_etf</code>、<code>result.etf_top</code> 和本地核心宽基种子。</p>
-            <p class="muted">当前 ETF 池 {esc(len(leaders))} 只；主屏显示 {esc(len(display_leaders))} 只研究代表。</p>
+            <p class="muted">当前 ETF 池 {esc(len(leaders))} 只；主屏显示 {esc(len(display_leaders))} 只研究代表：核心宽基 {esc(len(broad_leaders))} 只，主线代表 {esc(len(mainline_leaders))} 只。</p>
           </div>
           <div class="report-box">
             <span>report_id</span>
@@ -800,8 +810,25 @@ def render_home() -> bytes:
         </div>
       </div>
     </section>
-    <section class="content etf-grid">
-      {''.join(cards)}
+    <section class="content representative-section">
+      <div class="section-heading-row">
+        <div>
+          <h2>核心宽基ETF</h2>
+          <p class="muted">来源为本地核心宽基种子和宽基类别代表，不从主线代表推导。</p>
+        </div>
+        <span class="section-count">{esc(len(broad_leaders))} 只</span>
+      </div>
+      <div class="etf-grid">{render_etf_cards(broad_leaders)}</div>
+    </section>
+    <section class="content representative-section">
+      <div class="section-heading-row">
+        <div>
+          <h2>主线ETF代表</h2>
+          <p class="muted">来源为 <code>theme_ranking.top_etf</code>，每条主线只保留一个流动性代表。</p>
+        </div>
+        <span class="section-count">{esc(len(mainline_leaders))} 只</span>
+      </div>
+      <div class="etf-grid">{render_etf_cards(mainline_leaders)}</div>
     </section>
     <section class="content section-block">
       <h2>ETF深研队列</h2>
@@ -1530,7 +1557,7 @@ def api_index() -> bytes:
             "source_policy": (
                 "default to theme.okbbc.com/api/latest theme_ranking[].top_etf plus result.etf_top; "
                 "/api/index keeps the ETF pool and appends local core broad-index ETF seeds; "
-                "research queue keeps one representative per mainline theme plus broad-index representatives"
+                "research queue lists independent core broad-index representatives first, then one representative per mainline theme"
             ),
         },
         "report": dict(report) if report else None,

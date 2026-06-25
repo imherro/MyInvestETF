@@ -6,6 +6,8 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from myinvestetf.db import (
+    QUEUE_SOURCE_BROAD_INDEX,
+    QUEUE_SOURCE_MAINLINE,
     QUEUE_SOURCE_REQUEST,
     connect,
     init_db,
@@ -239,7 +241,7 @@ class ETFContractTests(unittest.TestCase):
                 "priority": 1,
                 "stage": 1,
                 "depends_on_task_type": "",
-                "source_type": "trackable_leader",
+                "source_type": QUEUE_SOURCE_MAINLINE,
                 "source_detail": "theme.okbbc.com/api/latest",
                 "task_keyword": "MyInvestETF ETF完整深研 510300.SH 沪深300ETF",
                 "prompt": "只研究这一只 ETF。",
@@ -392,9 +394,15 @@ class ETFContractTests(unittest.TestCase):
             ingest_payload(first_payload, source_url="https://theme.okbbc.com/api/latest", db_path=db_path)
             ingest_payload(second_payload, source_url="https://theme.okbbc.com/api/latest", db_path=db_path)
             with closing(connect(db_path)) as conn:
-                queue_codes = {row["code"] for row in list_queue(conn)}
+                queue = list_queue(conn)
+                queue_codes = {row["code"] for row in queue}
+                source_by_code = {row["code"]: row["source_type"] for row in queue}
+                priority_by_code = {row["code"]: row["priority"] for row in queue}
             self.assertIn("159516.SZ", queue_codes)
             self.assertNotIn("588200.SH", queue_codes)
+            self.assertEqual(source_by_code["159516.SZ"], QUEUE_SOURCE_MAINLINE)
+            self.assertEqual(source_by_code["510300.SH"], QUEUE_SOURCE_BROAD_INDEX)
+            self.assertLess(priority_by_code["510300.SH"], priority_by_code["159516.SZ"])
 
     def test_requested_prompts_do_not_require_api_index_membership(self) -> None:
         report = {"report_id": "manual_etf_research_request_2026-06-24", "basis_date": "2026-06-24"}
@@ -419,7 +427,7 @@ class ETFContractTests(unittest.TestCase):
             {
                 "priority": 1,
                 "stage": 1,
-                "source_type": "trackable_leader",
+                "source_type": QUEUE_SOURCE_MAINLINE,
                 "code": "588170.SH",
                 "name": "华夏上证科创板半导体材料设备主题ETF",
                 "task_type": "research",

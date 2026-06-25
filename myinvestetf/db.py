@@ -14,7 +14,10 @@ from .config import DB_PATH
 
 REPORT_SCHEMA_VERSION = "etf_research_report.v1"
 QUEUE_SOURCE_TRACKABLE = "trackable_leader"
+QUEUE_SOURCE_MAINLINE = "mainline_representative"
+QUEUE_SOURCE_BROAD_INDEX = "broad_index_representative"
 QUEUE_SOURCE_REQUEST = "manual_request"
+AUTO_QUEUE_SOURCES = (QUEUE_SOURCE_TRACKABLE, QUEUE_SOURCE_MAINLINE, QUEUE_SOURCE_BROAD_INDEX)
 
 
 def utc_now() -> str:
@@ -260,7 +263,11 @@ def _json(value: Any) -> str:
 
 def queue_source_label(source_type: object) -> str:
     if source_type == QUEUE_SOURCE_TRACKABLE:
-        return "可跟踪龙头"
+        return "主线代表"
+    if source_type == QUEUE_SOURCE_MAINLINE:
+        return "主线代表"
+    if source_type == QUEUE_SOURCE_BROAD_INDEX:
+        return "核心宽基"
     if source_type == QUEUE_SOURCE_REQUEST:
         return "其他请求"
     return str(source_type or "未知来源")
@@ -268,11 +275,12 @@ def queue_source_label(source_type: object) -> str:
 
 def _active_queue_filter_sql(alias: str = "q") -> tuple[str, list[Any]]:
     prefix = f"{alias}." if alias else ""
+    auto_placeholders = ", ".join("?" for _ in AUTO_QUEUE_SOURCES)
     return (
         f"""
         (
             (
-                {prefix}source_type = ?
+                {prefix}source_type IN ({auto_placeholders})
                 AND {prefix}report_id = (
                     SELECT report_id
                     FROM leader_reports
@@ -301,7 +309,7 @@ def _active_queue_filter_sql(alias: str = "q") -> tuple[str, list[Any]]:
             )
         )
         """,
-        [QUEUE_SOURCE_TRACKABLE, QUEUE_SOURCE_REQUEST],
+        [*AUTO_QUEUE_SOURCES, QUEUE_SOURCE_REQUEST],
     )
 
 
@@ -770,6 +778,7 @@ def upsert_queue_item(
 
 def prune_trackable_report(conn: sqlite3.Connection, *, report_id: str, keep_codes: list[str]) -> None:
     """Keep the current report projection aligned with the selected ETF universe."""
+    source_placeholders = ", ".join("?" for _ in AUTO_QUEUE_SOURCES)
     if keep_codes:
         placeholders = ", ".join("?" for _ in keep_codes)
         params: tuple[Any, ...] = (report_id, *keep_codes)
@@ -781,29 +790,30 @@ def prune_trackable_report(conn: sqlite3.Connection, *, report_id: str, keep_cod
             f"""
             DELETE FROM research_queue
             WHERE report_id = ?
-              AND source_type = ?
+              AND source_type IN ({source_placeholders})
               AND code NOT IN ({placeholders})
             """,
-            (report_id, QUEUE_SOURCE_TRACKABLE, *keep_codes),
+            (report_id, *AUTO_QUEUE_SOURCES, *keep_codes),
         )
     else:
         conn.execute("DELETE FROM trackable_leaders WHERE report_id = ?", (report_id,))
         conn.execute(
-            "DELETE FROM research_queue WHERE report_id = ? AND source_type = ?",
-            (report_id, QUEUE_SOURCE_TRACKABLE),
+            f"DELETE FROM research_queue WHERE report_id = ? AND source_type IN ({source_placeholders})",
+            (report_id, *AUTO_QUEUE_SOURCES),
         )
 
 
 def prune_trackable_queue(conn: sqlite3.Connection, *, report_id: str, keep_codes: list[str]) -> None:
     """Keep current report queue rows aligned with the selected research representatives."""
     params: tuple[Any, ...]
+    source_placeholders = ", ".join("?" for _ in AUTO_QUEUE_SOURCES)
     if keep_codes:
         placeholders = ", ".join("?" for _ in keep_codes)
-        condition = f"report_id = ? AND source_type = ? AND code NOT IN ({placeholders})"
-        params = (report_id, QUEUE_SOURCE_TRACKABLE, *keep_codes)
+        condition = f"report_id = ? AND source_type IN ({source_placeholders}) AND code NOT IN ({placeholders})"
+        params = (report_id, *AUTO_QUEUE_SOURCES, *keep_codes)
     else:
-        condition = "report_id = ? AND source_type = ?"
-        params = (report_id, QUEUE_SOURCE_TRACKABLE)
+        condition = f"report_id = ? AND source_type IN ({source_placeholders})"
+        params = (report_id, *AUTO_QUEUE_SOURCES)
     run_ids = [
         row["run_id"]
         for row in conn.execute(

@@ -12,7 +12,10 @@ from core.valuation import infer_valuation_model_type, sleeve_for_valuation_mode
 
 from .config import DB_PATH, LEADER_INDEX_URL, RAW_DATA_DIR
 from .db import (
+    QUEUE_SOURCE_BROAD_INDEX,
+    QUEUE_SOURCE_MAINLINE,
     QUEUE_SOURCE_REQUEST,
+    QUEUE_SOURCE_TRACKABLE,
     connect,
     init_db,
     prune_trackable_queue,
@@ -106,6 +109,7 @@ BROAD_INDEX_SEED_ETFS: tuple[dict[str, Any], ...] = (
     {"code": "588000.SH", "name": "华夏上证科创板50ETF", "theme": "科创50宽基", "category_key": "科创50"},
 )
 BROAD_INDEX_CATEGORY_KEYS = {item["category_key"] for item in BROAD_INDEX_SEED_ETFS}
+BROAD_INDEX_CATEGORY_ORDER = {item["category_key"]: index for index, item in enumerate(BROAD_INDEX_SEED_ETFS)}
 
 
 ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
@@ -366,6 +370,7 @@ def _normalize_theme_latest_item(item: dict[str, Any]) -> dict[str, Any]:
             },
             "risk_flags": item.get("risk_flags") or [],
             "data_gaps": item.get("data_gaps") or ["theme.okbbc.com/api/latest 不提供 ETF 净值、折溢价、份额变化和完整持仓披露。"],
+            "source_path": item.get("source_path") or "result.etf_top",
         }
     )
     return normalized
@@ -561,11 +566,43 @@ def _append_unique(items: list[dict[str, Any]], item: dict[str, Any]) -> None:
         items.append(item)
 
 
+def is_broad_index_item(item: dict[str, Any]) -> bool:
+    return etf_model_type(item) == "broad_index" or etf_category_key(item) in BROAD_INDEX_CATEGORY_KEYS
+
+
+def queue_source_for_item(item: dict[str, Any]) -> str:
+    if is_broad_index_item(item):
+        return QUEUE_SOURCE_BROAD_INDEX
+    if (
+        item.get("theme_rank") is not None
+        or item.get("top_etf_rank") is not None
+        or item.get("source_path") == "result.theme_ranking.top_etf"
+    ):
+        return QUEUE_SOURCE_MAINLINE
+    return QUEUE_SOURCE_TRACKABLE
+
+
+def queue_source_detail_for_item(item: dict[str, Any]) -> str:
+    category_key = etf_category_key(item)
+    source_path = str(item.get("source_path") or "")
+    if is_broad_index_item(item):
+        return f"核心宽基代表：{category_key or item.get('theme') or item['code']}；来源：{source_path or 'local.broad_index_seed/result.etf_top'}"
+    if item.get("top_etf_rank") is not None and source_path != "result.theme_ranking.top_etf":
+        source_path = f"{source_path or 'result.etf_top'} + result.theme_ranking.top_etf"
+    return f"主线代表：{item.get('theme') or category_key or item['code']}；来源：{source_path or 'result.theme_ranking.top_etf'}"
+
+
+def research_queue_sort_key(item: dict[str, Any]) -> tuple[int, int, float, str]:
+    if is_broad_index_item(item):
+        return (0, BROAD_INDEX_CATEGORY_ORDER.get(etf_category_key(item), 999), -_liquidity_amount(item), item["code"])
+    return (1, 999, -_safe_float(item.get("score") or item.get("deep_score")), item["code"])
+
+
 def research_representatives(items: list[dict[str, Any]], payload: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     if payload is None or not _has_theme_ranking(payload):
         return _deduplicate_by_category(items)
     by_code = {item["code"]: item for item in items}
-    representatives: list[dict[str, Any]] = []
+    mainline_representatives: list[dict[str, Any]] = []
     result = payload.get("result") or {}
     for theme_item in result.get("theme_ranking") or []:
         if not isinstance(theme_item, dict):
@@ -573,10 +610,12 @@ def research_representatives(items: list[dict[str, Any]], payload: dict[str, Any
         candidates = [by_code[code] for code in _top_etf_codes(theme_item) if code in by_code]
         selected = _choose_liquid_representative(candidates)
         if selected is not None:
-            _append_unique(representatives, selected)
+            _append_unique(mainline_representatives, selected)
     broad_items = [item for item in items if etf_category_key(item) in BROAD_INDEX_CATEGORY_KEYS]
+    broad_representatives: list[dict[str, Any]] = []
     for item in _deduplicate_by_category(broad_items):
-        _append_unique(representatives, item)
+        _append_unique(broad_representatives, item)
+    representatives = broad_representatives + mainline_representatives
     return representatives or _deduplicate_by_category(items)
 
 
@@ -824,10 +863,7 @@ def ingest_payload(
         prune_trackable_queue(conn, report_id=report["report_id"], keep_codes=research_codes)
         for item in sorted(items, key=lambda row: row.get("score") or row.get("deep_score") or 0, reverse=True):
             upsert_trackable_leader(conn, report_id=report["report_id"], item=item, created_at=now)
-        for priority, item in enumerate(
-            sorted(research_items, key=lambda row: row.get("score") or row.get("deep_score") or 0, reverse=True),
-            start=1,
-        ):
+        for priority, item in enumerate(sorted(research_items, key=research_queue_sort_key), start=1):
             if is_cash_like_etf(item):
                 continue
             upsert_queue_item(
@@ -843,6 +879,8 @@ def ingest_payload(
                 depends_on_task_type=None,
                 task_date=report.get("basis_date"),
                 now=now,
+                source_type=queue_source_for_item(item),
+                source_detail=queue_source_detail_for_item(item),
             )
         conn.commit()
     return {

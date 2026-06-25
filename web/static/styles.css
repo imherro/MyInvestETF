@@ -126,6 +126,37 @@ h2 {
   padding: 20px 0;
 }
 
+.representative-section {
+  padding-top: 18px;
+}
+
+.representative-section .etf-grid {
+  padding-top: 12px;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.section-heading-row h2 {
+  margin: 0;
+}
+
+.section-heading-row p {
+  margin: 6px 0 0;
+}
+
+.section-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .stock-card,
 .etf-card {
   display: grid;
@@ -651,6 +682,11 @@ tr:last-child td {
   .page-title-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .section-heading-row {
+    flex-direction: column;
+    gap: 8px;
   }
 
   .stock-grid,
