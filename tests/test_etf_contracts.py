@@ -30,6 +30,7 @@ from myinvestetf.leader_index import (
 from myinvestetf.web import (
     decision_matrix_summary,
     leader_to_summary,
+    render_etf_cards,
     render_valuation_chart,
     render_queue_rows,
     render_layout,
@@ -521,6 +522,31 @@ class ETFContractTests(unittest.TestCase):
         html = render_valuation_chart(runs, prices)
         self.assertIn("近期价格K线", html)
         self.assertIn("K线叠加ETF参考价格区间图", html)
+
+    def test_home_card_uses_research_and_price_cache_for_broad_seed(self) -> None:
+        leader = {
+            "code": "510210.SH",
+            "name": "富国上证综指ETF",
+            "deep_rating": "B",
+            "deep_label": "核心宽基ETF",
+            "deep_score": 80.0,
+            "market_json": "{}",
+            "raw_json": '{"category_key":"上证综指","valuation_model_type":"broad_index","sleeve_key":"core_wide_etf"}',
+            "xueqiu_url": "https://xueqiu.com/S/SH510210",
+        }
+        research = {
+            "task_type": "research",
+            "valuation_mid": 1.003848,
+            "heavy_position_view": "工具仓可用",
+            "raw_json": '{"valuation":{"current_price":1.032}}',
+        }
+        prices = [{"trade_date": "2026-06-24", "open_price": 1.03, "high_price": 1.04, "low_price": 1.02, "close_price": 1.032}]
+        html = render_etf_cards([leader], {"510210.SH": research}, {"510210.SH": prices})
+        self.assertIn("当前价格", html)
+        self.assertIn("参考中枢", html)
+        self.assertIn("底仓资格", html)
+        self.assertIn("工具仓可用", html)
+        self.assertNotIn("PE TTM", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})

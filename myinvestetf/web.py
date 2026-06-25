@@ -742,21 +742,31 @@ def is_broad_index_leader(row: object) -> bool:
     return leader_model_info(row).get("valuation_model_type") == "broad_index"
 
 
-def render_etf_cards(rows: list[object]) -> str:
+def render_etf_cards(
+    rows: list[object],
+    research_by_code: dict[str, object] | None = None,
+    prices_by_code: dict[str, list[object]] | None = None,
+) -> str:
+    research_by_code = research_by_code or {}
+    prices_by_code = prices_by_code or {}
     cards = []
     for row in rows:
+        code = str(_row_value(row, "code"))
         market = load_json(_row_value(row, "market_json"), {})
-        scores = load_json(_row_value(row, "scores_json"), {})
         model_info = leader_model_info(row)
         category_key = leader_category_key(row)
+        latest = research_by_code.get(code)
+        current_price = _display_current_price(latest, prices_by_code.get(code, []), market)
+        reference_mid = _row_value(latest, "valuation_mid") if latest is not None else None
+        position_view = _row_value(latest, "heavy_position_view") if latest is not None else None
         cards.append(
             f"""<article class="etf-card">
         <div class="etf-card-top">
           <div>
-            <a class="etf-title" href="/etfs/{esc(_row_value(row, 'code'))}">{esc(_row_value(row, 'name'))}</a>
-            <div class="etf-code">{xueqiu_etf_link(_row_value(row, 'code'), _row_value(row, 'xueqiu_url'))}</div>
+            <a class="etf-title" href="/etfs/{esc(code)}">{esc(_row_value(row, 'name'))}</a>
+            <div class="etf-code">{xueqiu_etf_link(code, _row_value(row, 'xueqiu_url'))}</div>
           </div>
-          <a class="text-link card-action" href="/etfs/{esc(_row_value(row, 'code'))}">查看</a>
+          <a class="text-link card-action" href="/etfs/{esc(code)}">查看</a>
         </div>
         <div class="badges">
           <span class="badge badge-strong">{esc(_row_value(row, 'deep_rating') or '')} {esc(_row_value(row, 'deep_label') or '')}</span>
@@ -766,9 +776,9 @@ def render_etf_cards(rows: list[object]) -> str:
         </div>
         <div class="compact-metrics">
           {compact_metric("深研", _row_value(row, "deep_score"))}
-          {compact_metric("收盘", market.get("close") if isinstance(market, dict) else None)}
-          {compact_metric("PE TTM", market.get("pe_ttm") if isinstance(market, dict) else None)}
-          {compact_metric("估值安全", scores.get("valuation_safety") if isinstance(scores, dict) else None)}
+          {compact_metric("当前价格", current_price)}
+          {compact_metric("参考中枢", reference_mid)}
+          {compact_metric("底仓资格", position_view)}
         </div>
       </article>"""
         )
@@ -803,6 +813,16 @@ def render_home() -> bytes:
 
     broad_leaders = [row for row in display_leaders if is_broad_index_leader(row)]
     mainline_leaders = [row for row in display_leaders if not is_broad_index_leader(row)]
+    research_by_code: dict[str, object] = {}
+    prices_by_code: dict[str, list[object]] = {}
+    with closing(connect(DB_PATH)) as conn:
+        for row in display_leaders:
+            code = str(row["code"])
+            runs = list_research_runs(conn, code)
+            latest = next((item for item in runs if item["task_type"] == "research"), runs[0] if runs else None)
+            if latest is not None:
+                research_by_code[code] = latest
+            prices_by_code[code] = list_daily_prices(conn, code, limit=1)
 
     queue_summary_count = len(queue_display_rows(queue))
     queue_rows = render_queue_rows(queue)
@@ -831,7 +851,7 @@ def render_home() -> bytes:
         </div>
         <span class="section-count">{esc(len(broad_leaders))} 只</span>
       </div>
-      <div class="etf-grid">{render_etf_cards(broad_leaders)}</div>
+      <div class="etf-grid">{render_etf_cards(broad_leaders, research_by_code, prices_by_code)}</div>
     </section>
     <section class="content representative-section">
       <div class="section-heading-row">
@@ -841,7 +861,7 @@ def render_home() -> bytes:
         </div>
         <span class="section-count">{esc(len(mainline_leaders))} 只</span>
       </div>
-      <div class="etf-grid">{render_etf_cards(mainline_leaders)}</div>
+      <div class="etf-grid">{render_etf_cards(mainline_leaders, research_by_code, prices_by_code)}</div>
     </section>
     <section class="content section-block">
       <h2>ETF深研队列</h2>
