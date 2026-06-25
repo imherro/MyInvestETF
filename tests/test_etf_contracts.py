@@ -31,6 +31,7 @@ from myinvestetf.web import (
     decision_matrix_summary,
     leader_to_summary,
     render_etf_cards,
+    render_signal_matrix,
     render_valuation_chart,
     render_queue_rows,
     render_layout,
@@ -478,7 +479,8 @@ class ETFContractTests(unittest.TestCase):
             "valuation_method": "NAV+index-valuation",
             "heavy_position_view": "工具仓可用",
             "raw_json": (
-                '{"valuation":{"current_price":4.05,"undervalued_score":65,"liquidity_score":80,'
+                '{"valuation":{"current_price":4.05,"valuation_percentile":88.066369,'
+                '"undervalued_score":65,"liquidity_score":80,'
                 '"tracking_score":90,"portfolio_role_score":70,"risk_adjusted_score":72},'
                 '"conclusion":{"summary":"确定性规则评分"}}'
             ),
@@ -487,6 +489,31 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual(signal["bucket"], "medium")
         self.assertEqual(signal["liquidity_score"], 80.0)
         self.assertEqual(signal["current_price"], 4.05)
+        self.assertEqual(signal["valuation_percentile"], 88.066369)
+
+    def test_signal_matrix_surfaces_valuation_percentile(self) -> None:
+        row = {
+            "valuation_low": 4.46,
+            "valuation_mid": 4.85,
+            "valuation_high": 5.24,
+            "valuation_unit": "CNY/fund_share",
+            "valuation_method": "broad-index-valuation+ERP",
+            "heavy_position_view": "工具仓可用",
+            "raw_json": (
+                '{"valuation_model_type":"broad_index","sleeve_key":"core_wide_etf",'
+                '"valuation":{"valuation_percentile":88.066369,"undervalued_score":17.65,'
+                '"liquidity_score":100,"tracking_score":84.5,"portfolio_role_score":95.72,'
+                '"risk_adjusted_score":66.45},"conclusion":{"summary":"工具仓跟踪"}}'
+            ),
+        }
+        valuation_signal = valuation_signal_summary(row)
+        html = render_signal_matrix(
+            {"risk_flags": []},
+            valuation_signal,
+            {"posture": "工具仓跟踪", "conclusion": "测试"},
+        )
+        self.assertIn("估值分位", html)
+        self.assertIn("88.07%", html)
 
     def test_valuation_chart_uses_price_language_and_explains_missing_close_line(self) -> None:
         runs = [

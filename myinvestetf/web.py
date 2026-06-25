@@ -226,6 +226,15 @@ def fmt_num(value: object, digits: int = 2) -> str:
         return esc(value)
 
 
+def fmt_percentile(value: object, digits: int = 2) -> str:
+    if value is None:
+        return "待入库"
+    try:
+        return f"{float(value):.{digits}f}%"
+    except (TypeError, ValueError):
+        return esc(value)
+
+
 def _num(value: object) -> float | None:
     try:
         return float(value)
@@ -372,6 +381,7 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
     current_price = _num(valuation.get("current_price")) if isinstance(valuation, dict) else None
     nav = _num(valuation.get("nav")) if isinstance(valuation, dict) else None
     premium_discount = _num(valuation.get("premium_discount")) if isinstance(valuation, dict) else None
+    valuation_percentile = _num(valuation.get("valuation_percentile")) if isinstance(valuation, dict) else None
     mainline_validity_score = _num(valuation.get("mainline_validity_score")) if isinstance(valuation, dict) else None
     valuation_tolerance_score = _num(valuation.get("valuation_tolerance_score")) if isinstance(valuation, dict) else None
     crowding_risk_score = _num(valuation.get("crowding_risk_score")) if isinstance(valuation, dict) else None
@@ -401,6 +411,7 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
         "current_price": current_price,
         "nav": nav,
         "premium_discount": premium_discount,
+        "valuation_percentile": valuation_percentile,
         "risk_adjusted_score": risk_adjusted_score,
         "mainline_validity_score": mainline_validity_score,
         "valuation_tolerance_score": valuation_tolerance_score,
@@ -605,6 +616,11 @@ def metric_explanation(label: str, value: object) -> tuple[str, str]:
             "价格快照",
             "优先使用本地日行情最新收盘价；如果行情未缓存，则使用最新完整深研中的 current_price 或入口收盘价。",
         )
+    if label == "估值分位":
+        return (
+            "估值百分位",
+            "底层指数或估值输入的历史分位，数值越高通常表示越接近历史偏贵区间。",
+        )
     if label == "收盘":
         return (
             "行情快照",
@@ -633,6 +649,8 @@ def metric_signal(label: str, value: object) -> tuple[str, str]:
         return score_signal(value, kind="deep_score")
     if label == "当前价格":
         return "neutral", "价格快照"
+    if label == "估值分位":
+        return "neutral", "百分位"
     if label == "收盘":
         return "neutral", "行情快照"
     if label in {"PE TTM", "PB"}:
@@ -1364,6 +1382,7 @@ def render_signal_matrix(
               {signal_item("五仓角色", valuation_signal.get("sleeve_label"))}
               {signal_item("适配状态", valuation_signal.get("label"))}
               {signal_item("参考价格区间", range_text, valuation_signal.get("source"))}
+              {signal_item("估值分位", fmt_percentile(valuation_signal.get("valuation_percentile")))}
               {model_specific_items}
               {signal_item("流动性", fmt_num(valuation_signal.get("liquidity_score")))}
               {signal_item("跟踪质量", fmt_num(valuation_signal.get("tracking_score")))}
@@ -1519,6 +1538,7 @@ def render_etf_page(code: str) -> bytes:
         <div class="summary-grid">
           {metric("深研分", leader["deep_score"] if leader is not None else None)}
           {metric("当前价格", current_price)}
+          {metric("估值分位", fmt_percentile(valuation_signal.get("valuation_percentile")))}
           {metric("PE TTM", market.get("pe_ttm"))}
           {metric("PB", market.get("pb"))}
           {metric("估值框架", model_info.get("valuation_model_label"))}
