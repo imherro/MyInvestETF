@@ -603,6 +603,47 @@ tr:last-child td {
   font-weight: 700;
 }
 
+.reference-level-line {
+  stroke-dasharray: 6 5;
+  stroke-linecap: round;
+  stroke-width: 1.6;
+}
+
+.reference-level-line-low {
+  stroke: rgba(5, 150, 105, 0.78);
+}
+
+.reference-level-line-mid {
+  stroke: rgba(29, 78, 216, 0.78);
+}
+
+.reference-level-line-high {
+  stroke: rgba(180, 83, 9, 0.82);
+}
+
+.reference-level-label-bg {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: rgba(100, 116, 139, 0.24);
+}
+
+.reference-level-label-bg-low {
+  stroke: rgba(5, 150, 105, 0.36);
+}
+
+.reference-level-label-bg-mid {
+  stroke: rgba(29, 78, 216, 0.32);
+}
+
+.reference-level-label-bg-high {
+  stroke: rgba(180, 83, 9, 0.34);
+}
+
+.reference-level-label {
+  fill: #334155;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
 .valuation-band {
   fill: rgba(15, 118, 110, 0.16);
 }
@@ -722,6 +763,11 @@ tr:last-child td {
 .legend-current-line {
   height: 0 !important;
   border-top: 2px dashed rgba(220, 38, 38, 0.85);
+}
+
+.legend-reference-level {
+  height: 0 !important;
+  border-top: 2px dashed #64748b;
 }
 
 .legend-band {

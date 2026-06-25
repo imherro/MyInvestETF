@@ -933,6 +933,69 @@ def _chart_y(value: float, lower: float, upper: float, top: float, height: float
     return top + (upper - value) / (upper - lower) * height
 
 
+def _latest_reference_level_lines(
+    point: dict[str, object],
+    *,
+    y_min: float,
+    y_max: float,
+    top: float,
+    plot_height: float,
+    plot_bottom: float,
+    left: float,
+    plot_right: float,
+) -> str:
+    levels = [
+        ("high", "高", "最新参考高位", float(point["high"])),
+        ("mid", "中枢", "最新参考中枢", float(point["mid"])),
+        ("low", "低", "最新参考低位", float(point["low"])),
+    ]
+    label_height = 18.0
+    label_width = 88.0
+    label_x = left + 8.0
+    min_label_y = top + 2.0
+    max_label_y = plot_bottom - label_height - 2.0
+    label_gap = 2.0
+    positioned_labels = []
+    for suffix, short_label, full_label, value in levels:
+        y = _chart_y(value, y_min, y_max, top, plot_height)
+        positioned_labels.append(
+            {
+                "suffix": suffix,
+                "short_label": short_label,
+                "full_label": full_label,
+                "value": value,
+                "y": y,
+                "label_y": min(max(y - label_height / 2.0, min_label_y), max_label_y),
+            }
+        )
+    positioned_labels.sort(key=lambda item: float(item["label_y"]))
+    previous_y = min_label_y - label_height - label_gap
+    for item in positioned_labels:
+        item["label_y"] = max(float(item["label_y"]), previous_y + label_height + label_gap)
+        previous_y = float(item["label_y"])
+    if positioned_labels and float(positioned_labels[-1]["label_y"]) > max_label_y:
+        overflow = float(positioned_labels[-1]["label_y"]) - max_label_y
+        for item in positioned_labels:
+            item["label_y"] = max(min_label_y, float(item["label_y"]) - overflow)
+
+    lines = []
+    for item in positioned_labels:
+        suffix = item["suffix"]
+        y = float(item["y"])
+        label_y = float(item["label_y"])
+        label_text = f"{item['short_label']} {fmt_num(item['value'])}"
+        title = f"{item['full_label']} {fmt_num(item['value'])}"
+        lines.append(
+            f"""<g class="reference-level reference-level-{suffix}">
+            <title>{esc(title)}</title>
+            <line class="reference-level-line reference-level-line-{suffix}" x1="{left:.1f}" y1="{y:.1f}" x2="{plot_right:.1f}" y2="{y:.1f}"></line>
+            <rect class="reference-level-label-bg reference-level-label-bg-{suffix}" x="{label_x:.1f}" y="{label_y:.1f}" width="{label_width:.1f}" height="{label_height:.1f}" rx="4"></rect>
+            <text class="reference-level-label reference-level-label-{suffix}" x="{label_x + 7.0:.1f}" y="{label_y + 12.8:.1f}">{esc(label_text)}</text>
+          </g>"""
+        )
+    return "".join(lines)
+
+
 def _valuation_chart_points(runs: list[object]) -> list[dict[str, object]]:
     points: list[dict[str, object]] = []
     for row in runs:
@@ -1043,6 +1106,8 @@ def _render_plain_valuation_chart(points: list[dict[str, object]]) -> str:
     bottom = 52.0
     plot_width = width - left - right
     plot_height = height - top - bottom
+    plot_right = width - right
+    plot_bottom = height - bottom
     lows = [float(item["low"]) for item in points]
     highs = [float(item["high"]) for item in points]
     lower = min(lows)
@@ -1110,23 +1175,36 @@ def _render_plain_valuation_chart(points: list[dict[str, object]]) -> str:
         </g>"""
         )
 
+    latest_reference_lines = _latest_reference_level_lines(
+        positioned[-1],
+        y_min=y_min,
+        y_max=y_max,
+        top=top,
+        plot_height=plot_height,
+        plot_bottom=plot_bottom,
+        left=left,
+        plot_right=plot_right,
+    )
+
     return f"""<section class="section-block">
       <h2>ETF参考价格区间历史</h2>
       <div class="valuation-chart">
         <svg class="valuation-history-svg" viewBox="0 0 {width:.0f} {height:.0f}" role="img" aria-label="ETF参考价格区间随时间变化图">
           <title>ETF参考价格区间随时间变化图</title>
-          <line class="valuation-axis-line" x1="{left:.1f}" y1="{top:.1f}" x2="{left:.1f}" y2="{height - bottom:.1f}"></line>
-          <line class="valuation-axis-line" x1="{left:.1f}" y1="{height - bottom:.1f}" x2="{width - right:.1f}" y2="{height - bottom:.1f}"></line>
+          <line class="valuation-axis-line" x1="{left:.1f}" y1="{top:.1f}" x2="{left:.1f}" y2="{plot_bottom:.1f}"></line>
+          <line class="valuation-axis-line" x1="{left:.1f}" y1="{plot_bottom:.1f}" x2="{plot_right:.1f}" y2="{plot_bottom:.1f}"></line>
           <text class="valuation-axis-title" x="{left:.1f}" y="16" text-anchor="start">价格 CNY/fund_share</text>
           {''.join(tick_lines)}
           {band_svg}
           {high_line}
           {low_line}
           {mid_line}
+          {latest_reference_lines}
           {''.join(markers)}
           {''.join(x_labels)}
         </svg>
         <div class="valuation-legend">
+          <span><i class="legend-reference-level"></i>最新低/中枢/高</span>
           <span><i class="legend-band"></i>保守-乐观区间</span>
           <span><i class="legend-line"></i>参考价格中枢</span>
           <span><i class="legend-dot"></i>单次完整深研</span>
@@ -1269,6 +1347,17 @@ def _render_close_price_valuation_chart(
         </g>"""
         )
 
+    latest_reference_lines = _latest_reference_level_lines(
+        positioned_valuations[-1],
+        y_min=y_min,
+        y_max=y_max,
+        top=top,
+        plot_height=plot_height,
+        plot_bottom=plot_bottom,
+        left=left,
+        plot_right=plot_right,
+    )
+
     first_date = price_points[0]["date"]
     last_date = price_points[-1]["date"]
     return f"""<section class="section-block">
@@ -1291,6 +1380,9 @@ def _render_close_price_valuation_chart(
             {''.join(mid_lines)}
             {''.join(markers)}
           </g>
+          <g class="reference-level-layer">
+            {latest_reference_lines}
+          </g>
           <g class="current-price-layer">
             <title>当前价格 {fmt_num(current_price)}，截至 {esc(last_price['date'])}</title>
             <line class="current-price-line" x1="{left:.1f}" y1="{y_current:.1f}" x2="{plot_right:.1f}" y2="{y_current:.1f}"></line>
@@ -1302,6 +1394,7 @@ def _render_close_price_valuation_chart(
         <div class="valuation-legend">
           <span><i class="legend-close-line"></i>2024-09-24以来收盘价折线</span>
           <span><i class="legend-current-line"></i>当前价格</span>
+          <span><i class="legend-reference-level"></i>最新低/中枢/高</span>
           <span><i class="legend-band"></i>保守-乐观区间</span>
           <span><i class="legend-line"></i>参考价格中枢</span>
           <span><i class="legend-dot"></i>完整深研点</span>

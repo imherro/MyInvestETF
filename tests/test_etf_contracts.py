@@ -530,6 +530,9 @@ class ETFContractTests(unittest.TestCase):
         html = render_valuation_chart(runs, [])
         self.assertIn("ETF参考价格区间历史", html)
         self.assertIn("2024-09-24以来收盘价待入库", html)
+        self.assertIn('class="reference-level-line reference-level-line-low"', html)
+        self.assertIn('class="reference-level-line reference-level-line-mid"', html)
+        self.assertIn('class="reference-level-line reference-level-line-high"', html)
         self.assertNotIn("ETF参考价值区间历史", html)
 
     def test_valuation_chart_renders_close_line_when_price_cache_exists(self) -> None:
@@ -552,8 +555,15 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("2024-09-24以来收盘价折线叠加ETF参考价格区间图", html)
         self.assertIn('class="close-price-line"', html)
         self.assertIn('class="current-price-line"', html)
+        self.assertIn('class="reference-level-line reference-level-line-low"', html)
+        self.assertIn('class="reference-level-line reference-level-line-mid"', html)
+        self.assertIn('class="reference-level-line reference-level-line-high"', html)
+        self.assertIn("低 3.70", html)
+        self.assertIn("中枢 4.00", html)
+        self.assertIn("高 4.30", html)
         self.assertIn("当前价 4.10", html)
         self.assertIn("当前价格", html)
+        self.assertIn("最新低/中枢/高", html)
         self.assertNotIn("kline-candle", html)
 
     def test_reference_price_explanation_shows_formula_and_current_run_math(self) -> None:
