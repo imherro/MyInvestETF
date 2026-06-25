@@ -594,6 +594,9 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("单位净值 NAV 4.9707", html)
         self.assertIn("综合调整 -2.39%", html)
         self.assertIn("带宽约 +/-8.00%", html)
+        self.assertIn("中枢 4.8521 = 4.9707 * (1 - 2.39%)", html)
+        self.assertIn("低位 4.4640 = 4.8521 * (1 - 8.00%)", html)
+        self.assertIn("高位 5.2403 = 4.8521 * (1 + 8.00%)", html)
         self.assertIn("估值分位调整", html)
         self.assertIn("股权风险溢价调整", html)
 

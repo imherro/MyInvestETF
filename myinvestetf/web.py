@@ -6,6 +6,7 @@ import mimetypes
 import re
 from contextlib import closing
 from datetime import datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -223,6 +224,17 @@ def fmt_num(value: object, digits: int = 2) -> str:
     try:
         return f"{float(value):.{digits}f}"
     except (TypeError, ValueError):
+        return esc(value)
+
+
+def fmt_calc_num(value: object, digits: int = 4) -> str:
+    if value is None:
+        return "待入库"
+    try:
+        decimal_value = Decimal(str(value))
+        quant = Decimal("1").scaleb(-digits)
+        return format(decimal_value.quantize(quant, rounding=ROUND_HALF_UP), f".{digits}f")
+    except (InvalidOperation, TypeError, ValueError):
         return esc(value)
 
 
@@ -1468,6 +1480,15 @@ def render_reference_price_explanation(latest: object | None, valuation_signal: 
         f"本页采用 {method}；{basis_text}；综合调整 {fmt_ratio_percent(adjustment, signed=True)}；"
         f"带宽约 +/-{fmt_ratio_percent(band_width)}。"
     )
+    if basis is not None and adjustment is not None and band_width is not None and low is not None and mid is not None and high is not None:
+        adjustment_sign = "-" if adjustment < 0 else "+"
+        expanded_text = (
+            f"中枢 {fmt_calc_num(mid)} = {fmt_calc_num(basis)} * (1 {adjustment_sign} {fmt_ratio_percent(abs(adjustment))})；"
+            f"低位 {fmt_calc_num(low)} = {fmt_calc_num(mid)} * (1 - {fmt_ratio_percent(band_width)})；"
+            f"高位 {fmt_calc_num(high)} = {fmt_calc_num(mid)} * (1 + {fmt_ratio_percent(band_width)})。"
+        )
+    else:
+        expanded_text = "等待基准价格、综合调整或带宽完整入库后展开计算。"
     return f"""<section class="section-block reference-price-explanation">
         <h2>参考价格口径</h2>
         <p>这里的低位、中枢、高位是ETF深研模型给出的参考价格区间，用来判断估值位置和仓位适配，不是交易指令。</p>
@@ -1488,8 +1509,9 @@ def render_reference_price_explanation(latest: object | None, valuation_signal: 
             <p>中枢价格乘以 (1 + 带宽)，表示估值容忍度上沿，不代表应该追高。</p>
           </div>
         </div>
-        <p class="formula-note"><strong>本页计算：</strong>{esc(calculation_text)}</p>
         <p class="formula-note"><strong>方法公式：</strong>{esc(formula_text)}</p>
+        <p class="formula-note"><strong>本页计算：</strong>{esc(calculation_text)}</p>
+        <p class="formula-note"><strong>本页数字：</strong>{esc(expanded_text)}</p>
       </section>"""
 
 
