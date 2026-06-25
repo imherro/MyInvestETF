@@ -31,6 +31,7 @@ from myinvestetf.web import (
     decision_matrix_summary,
     leader_to_summary,
     render_etf_cards,
+    render_reference_price_explanation,
     render_signal_matrix,
     render_valuation_chart,
     render_queue_rows,
@@ -554,6 +555,33 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("当前价 4.10", html)
         self.assertIn("当前价格", html)
         self.assertNotIn("kline-candle", html)
+
+    def test_reference_price_explanation_shows_formula_and_current_run_math(self) -> None:
+        latest = {
+            "valuation_method": "broad-index-valuation+ERP",
+        }
+        valuation_signal = {
+            "valuation_model_type": "broad_index",
+            "nav": 4.9707,
+            "current_price": 4.967,
+            "valuation_range": {
+                "low": 4.46395,
+                "mid": 4.85212,
+                "high": 5.24029,
+                "method": "broad-index-valuation+ERP",
+            },
+        }
+        html = render_reference_price_explanation(latest, valuation_signal)
+        self.assertIn("参考价格口径", html)
+        self.assertIn("参考低位", html)
+        self.assertIn("参考中枢", html)
+        self.assertIn("参考高位", html)
+        self.assertIn("本页采用 broad-index-valuation+ERP", html)
+        self.assertIn("单位净值 NAV 4.9707", html)
+        self.assertIn("综合调整 -2.39%", html)
+        self.assertIn("带宽约 +/-8.00%", html)
+        self.assertIn("估值分位调整", html)
+        self.assertIn("股权风险溢价调整", html)
 
     def test_home_card_uses_research_and_price_cache_for_broad_seed(self) -> None:
         leader = {

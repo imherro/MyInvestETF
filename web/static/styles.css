@@ -656,6 +656,52 @@ tr:last-child td {
   font-size: 13px;
 }
 
+.reference-price-explanation {
+  display: grid;
+  gap: 12px;
+}
+
+.reference-price-explanation h2,
+.reference-price-explanation p {
+  margin: 0;
+}
+
+.reference-formula-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reference-formula-grid div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.reference-formula-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reference-formula-grid strong {
+  display: block;
+  margin: 4px 0 6px;
+  font-size: 18px;
+}
+
+.reference-formula-grid p,
+.formula-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.formula-note strong {
+  color: var(--ink);
+}
+
 .valuation-legend span {
   display: inline-flex;
   align-items: center;
@@ -715,7 +761,8 @@ tr:last-child td {
   .two-col,
   .summary-grid,
   .signal-matrix,
-  .signal-grid {
+  .signal-grid,
+  .reference-formula-grid {
     grid-template-columns: 1fr;
   }
 

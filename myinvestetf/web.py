@@ -235,6 +235,17 @@ def fmt_percentile(value: object, digits: int = 2) -> str:
         return esc(value)
 
 
+def fmt_ratio_percent(value: object, digits: int = 2, *, signed: bool = False) -> str:
+    if value is None:
+        return "待入库"
+    try:
+        number = float(value) * 100.0
+    except (TypeError, ValueError):
+        return esc(value)
+    sign = "+" if signed else ""
+    return f"{number:{sign}.{digits}f}%"
+
+
 def _num(value: object) -> float | None:
     try:
         return float(value)
@@ -1309,6 +1320,80 @@ def render_valuation_chart(runs: list[object], prices: list[object] | None = Non
     return _render_plain_valuation_chart(points)
 
 
+def _reference_formula_text(method: object, model_type: object) -> str:
+    method_text = str(method or "")
+    model_text = str(model_type or "")
+    if method_text == "theme-strength+valuation-tolerance" or model_text == "mainline_theme":
+        return (
+            "主线ETF：中枢 = 基准价格 * (1 + 主线强度调整 + 估值容错调整 - 拥挤度调整 - 折溢价调整)，"
+            "低位/高位使用中枢上下12%的情景带宽。"
+        )
+    if method_text == "factor-premium+style-opportunity-cost" or model_text == "factor_defensive":
+        return (
+            "自由现金流、红利低波等防御因子ETF：中枢 = 基准价格 * "
+            "(1 + 因子溢价调整 - 风格机会成本调整 - 折溢价调整)，低位/高位使用中枢上下7%的情景带宽。"
+        )
+    if method_text == "cash-like-liquidity-monitor" or model_text == "cash_like":
+        return "短融、日利等现金替代ETF：中枢主要锚定基金净值并扣除折溢价影响，低位/高位使用上下1%的监控带宽。"
+    if method_text == "NAV+index-valuation":
+        return "基础ETF估值：中枢 = 基准价格 * (1 + 估值分位调整 - 折溢价调整)，低位/高位使用中枢上下8%的情景带宽。"
+    return (
+        "宽基ETF：中枢 = 基准价格 * "
+        "(1 + 估值分位调整 + 股权风险溢价调整 + ROE调整 - 市场位置过热调整 - 折溢价调整)，"
+        "低位/高位使用中枢上下8%的情景带宽。"
+    )
+
+
+def render_reference_price_explanation(latest: object | None, valuation_signal: dict[str, object]) -> str:
+    valuation_range = valuation_signal.get("valuation_range")
+    if not latest or not isinstance(valuation_range, dict) or valuation_range.get("mid") is None:
+        return """<section class="section-block reference-price-explanation">
+        <h2>参考价格口径</h2>
+        <p class="muted">等待ETF完整深研入库后，将显示参考价格低位、中枢和高位的计算依据。</p>
+      </section>"""
+
+    low = _num(valuation_range.get("low"))
+    mid = _num(valuation_range.get("mid"))
+    high = _num(valuation_range.get("high"))
+    method = valuation_range.get("method") or _row_value(latest, "valuation_method") or "待入库"
+    model_type = valuation_signal.get("valuation_model_type")
+    nav = _num(valuation_signal.get("nav"))
+    current_price = _num(valuation_signal.get("current_price"))
+    basis = nav if nav and nav > 0 else current_price
+    basis_label = "单位净值 NAV" if nav and nav > 0 else "当前价格"
+    adjustment = (mid / basis - 1.0) if mid is not None and basis and basis > 0 else None
+    band_width = (high / mid - 1.0) if high is not None and mid and mid > 0 else None
+    formula_text = _reference_formula_text(method, model_type)
+    basis_text = f"{basis_label} {fmt_num(basis, 4)}" if basis is not None else "基准价格待入库"
+    calculation_text = (
+        f"本页采用 {method}；{basis_text}；综合调整 {fmt_ratio_percent(adjustment, signed=True)}；"
+        f"带宽约 +/-{fmt_ratio_percent(band_width)}。"
+    )
+    return f"""<section class="section-block reference-price-explanation">
+        <h2>参考价格口径</h2>
+        <p>这里的低位、中枢、高位是ETF深研模型给出的参考价格区间，用来判断估值位置和仓位适配，不是交易指令。</p>
+        <div class="reference-formula-grid">
+          <div>
+            <span>参考低位</span>
+            <strong>{fmt_num(low)}</strong>
+            <p>中枢价格乘以 (1 - 带宽)，表示估值更有安全垫时的观察下沿。</p>
+          </div>
+          <div>
+            <span>参考中枢</span>
+            <strong>{fmt_num(mid)}</strong>
+            <p>以净值或当前价为基准，叠加当前ETF类型对应的估值、溢价和风险因子调整。</p>
+          </div>
+          <div>
+            <span>参考高位</span>
+            <strong>{fmt_num(high)}</strong>
+            <p>中枢价格乘以 (1 + 带宽)，表示估值容忍度上沿，不代表应该追高。</p>
+          </div>
+        </div>
+        <p class="formula-note"><strong>本页计算：</strong>{esc(calculation_text)}</p>
+        <p class="formula-note"><strong>方法公式：</strong>{esc(formula_text)}</p>
+      </section>"""
+
+
 def render_etf_queue_status(queue: list[object]) -> str:
     if not queue:
         return ""
@@ -1583,6 +1668,7 @@ def render_etf_page(code: str) -> bytes:
       {queue_status_section}
       {signal_matrix_section}
       {render_valuation_chart(chart_runs, chart_prices)}
+      {render_reference_price_explanation(latest if latest else None, valuation_signal)}
       {trackable_history_section}
       <section class="two-col">
         <div class="section-block">
