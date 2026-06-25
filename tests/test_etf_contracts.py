@@ -564,6 +564,10 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("当前价 4.10", html)
         self.assertIn("当前价格", html)
         self.assertIn("最新低/中枢/高", html)
+        self.assertIn(">4.35<", html)
+        self.assertIn(">3.65<", html)
+        self.assertNotIn(">5.30<", html)
+        self.assertNotIn(">2.70<", html)
         self.assertNotIn("kline-candle", html)
 
     def test_reference_price_explanation_shows_formula_and_current_run_math(self) -> None:

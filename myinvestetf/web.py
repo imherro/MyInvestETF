@@ -933,6 +933,21 @@ def _chart_y(value: float, lower: float, upper: float, top: float, height: float
     return top + (upper - value) / (upper - lower) * height
 
 
+def _chart_y_domain(values: list[float]) -> tuple[float, float]:
+    clean_values = [float(value) for value in values if value == value]
+    if not clean_values:
+        return 0.0, 1.0
+    lower = min(clean_values)
+    upper = max(clean_values)
+    center = (lower + upper) / 2.0
+    span = upper - lower
+    if span <= 0:
+        pad = max(abs(center) * 0.015, 0.01)
+    else:
+        pad = max(span * 0.08, abs(center) * 0.002, 0.01)
+    return lower - pad, upper + pad
+
+
 def _latest_reference_level_lines(
     point: dict[str, object],
     *,
@@ -1110,12 +1125,7 @@ def _render_plain_valuation_chart(points: list[dict[str, object]]) -> str:
     plot_bottom = height - bottom
     lows = [float(item["low"]) for item in points]
     highs = [float(item["high"]) for item in points]
-    lower = min(lows)
-    upper = max(highs)
-    span = upper - lower
-    pad = max(span * 0.08, max(abs(upper), 1.0) * 0.02, 1.0)
-    y_min = lower - pad
-    y_max = upper + pad
+    y_min, y_max = _chart_y_domain(lows + highs)
 
     positioned = []
     count = len(points)
@@ -1245,12 +1255,8 @@ def _render_close_price_valuation_chart(
     close_prices = [float(item["close"]) for item in price_points]
     valuation_lows = [float(item["low"]) for item in valuation_points]
     valuation_highs = [float(item["high"]) for item in valuation_points]
-    lower = min(close_prices + valuation_lows)
-    upper = max(close_prices + valuation_highs)
-    span = upper - lower
-    pad = max(span * 0.08, max(abs(upper), 1.0) * 0.02, 1.0)
-    y_min = lower - pad
-    y_max = upper + pad
+    valuation_mids = [float(item["mid"]) for item in valuation_points]
+    y_min, y_max = _chart_y_domain(close_prices + valuation_lows + valuation_mids + valuation_highs)
 
     price_dates = [_parsed_date(item["date"]) for item in price_points]
     price_count = len(price_points)
