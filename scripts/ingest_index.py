@@ -28,7 +28,7 @@ def main() -> int:
     result = ingest_payload(payload, source_url=args.url, raw_path=raw_path)
     print(f"report_id={result['report_id']}")
     print(f"basis_date={result['basis_date']}")
-    print(f"upstream_etf_count={result['count']}")
+    print(f"etf_pool_count={result['count']}")
     print(f"research_queue_representative_count={result['research_count']}")
     for code, name in zip(result["codes"], result["names"]):
         print(f"{code} {name}")

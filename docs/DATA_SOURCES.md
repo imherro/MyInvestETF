@@ -2,8 +2,10 @@
 
 ## 结构化 ETF 数据
 
-- theme.okbbc.com：可跟踪主线 ETF 默认入口，读取 `https://theme.okbbc.com/api/latest` 的 `result.etf_top`。
-- 主线入口会先按 ETF 投资暴露归类，再按成交额保留代表；同一研究类中成交额较小的 ETF 不进入当前深研队列。
+- theme.okbbc.com：可跟踪主线 ETF 默认入口，读取 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf` 和 `result.etf_top`。
+- 本地核心宽基种子：补齐上证综指、上证50、沪深300、中证500、中证1000、创业板、科创50 等宽基 ETF。
+- 主线入口每条主线至少保留一个 ETF 代表进入研究队列；同一主线内优先选择有成交额且成交额最大的 ETF，缺成交额时使用 `top_etf` 的第一位。
+- 宽基 ETF 按指数类别保留代表进入研究队列。
 - Tushare：A 股 ETF 结构化主源，使用本地 `.env` 中的 `TUSHARE_TOKEN`。
 - `fund_basic`：基金基础信息。
 - `fund_daily`：ETF 日行情。

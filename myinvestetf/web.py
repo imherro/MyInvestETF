@@ -741,8 +741,18 @@ def render_home() -> bytes:
 """
         return render_layout("可跟踪ETF", body)
 
+    leader_by_code = {row["code"]: row for row in leaders}
+    queue_codes = []
+    for row in queue:
+        code = row["code"]
+        if code not in queue_codes:
+            queue_codes.append(code)
+    display_leaders = [leader_by_code[code] for code in queue_codes if code in leader_by_code]
+    if not display_leaders:
+        display_leaders = leaders
+
     cards = []
-    for row in leaders:
+    for row in display_leaders:
         market = load_json(row["market_json"], {})
         scores = load_json(row["scores_json"], {})
         model_info = leader_model_info(row)
@@ -778,9 +788,9 @@ def render_home() -> bytes:
       <div class="content">
         <div class="page-title-row">
           <div>
-            <h1>可跟踪ETF</h1>
-            <p class="muted">上游默认来自 <code>theme.okbbc.com/api/latest</code> 的 <code>result.etf_top</code>，并兼容旧 <code>/api/index</code> 结构。</p>
-            <p class="muted">当前上游 ETF 池 {esc(len(leaders))} 只；深研队列按同类成交额最大规则保留 {esc(queue_summary_count)} 只研究代表。</p>
+            <h1>ETF研究代表</h1>
+            <p class="muted">ETF 池来自 <code>theme_ranking.top_etf</code>、<code>result.etf_top</code> 和本地核心宽基种子。</p>
+            <p class="muted">当前 ETF 池 {esc(len(leaders))} 只；主屏显示 {esc(len(display_leaders))} 只研究代表。</p>
           </div>
           <div class="report-box">
             <span>report_id</span>
@@ -1515,11 +1525,12 @@ def api_index() -> bytes:
         },
         "source": {
             "upstream_endpoint": LEADER_INDEX_URL,
-            "upstream_result_path": "result.etf_top",
+            "upstream_result_path": "result.theme_ranking[].top_etf + result.etf_top",
             "compatible_result_path": "key_results.primary_output.items",
             "source_policy": (
-                "default to theme.okbbc.com/api/latest result.etf_top; /api/index keeps the full upstream ETF list; "
-                "research queue keeps only the largest-turnover representative for each ETF category"
+                "default to theme.okbbc.com/api/latest theme_ranking[].top_etf plus result.etf_top; "
+                "/api/index keeps the ETF pool and appends local core broad-index ETF seeds; "
+                "research queue keeps one representative per mainline theme plus broad-index representatives"
             ),
         },
         "report": dict(report) if report else None,

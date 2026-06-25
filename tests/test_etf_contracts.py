@@ -168,6 +168,44 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual({item["code"] for item in representatives}, {"588200.SH", "512880.SH"})
         self.assertEqual({item["category_key"] for item in representatives}, {"半导体芯片", "证券金融"})
 
+    def test_theme_ranking_adds_one_research_representative_per_mainline(self) -> None:
+        payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-24",
+                "theme_ranking": [
+                    {"theme": "硬科技电子/半导体", "mainline_score_v6": 99, "top_etf": "588170.SH 半导体ETF、159516.SZ 半导体材料ETF"},
+                    {"theme": "AI算力/通信", "mainline_score_v6": 90, "top_etf": "515050.SH 5GETF、159994.SZ 5G通信ETF"},
+                ],
+                "etf_top": [
+                    {"ts_code": "588170.SH", "name": "半导体ETF", "amount": 100.0, "score": 99.0},
+                    {"ts_code": "159516.SZ", "name": "半导体材料ETF", "amount": 900.0, "score": 98.0},
+                ],
+            },
+        }
+        items = primary_items(payload)
+        representatives = research_representatives(items, payload)
+        self.assertIn("515050.SH", {item["code"] for item in items})
+        self.assertIn("510300.SH", {item["code"] for item in items})
+        self.assertIn("159516.SZ", [item["code"] for item in representatives])
+        self.assertIn("515050.SH", [item["code"] for item in representatives])
+
+    def test_core_broad_index_seeds_are_research_representatives(self) -> None:
+        payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-24",
+                "theme_ranking": [
+                    {"theme": "AI算力/通信", "mainline_score_v6": 90, "top_etf": "515050.SH 5GETF"},
+                ],
+                "etf_top": [],
+            },
+        }
+        representatives = research_representatives(primary_items(payload), payload)
+        by_code = {item["code"]: item for item in representatives}
+        for code in ["510210.SH", "510050.SH", "510300.SH", "510500.SH", "512100.SH", "159915.SZ", "588000.SH"]:
+            self.assertEqual(by_code[code]["valuation_model_type"], "broad_index")
+
     def test_research_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
         item = {"code": "510300.SH", "name": "沪深300ETF", "theme": "宽基"}
@@ -320,6 +358,43 @@ class ETFContractTests(unittest.TestCase):
                 queue = list_queue(conn)
             self.assertEqual([row["code"] for row in leaders], ["512880.SH", "588710.SH"])
             self.assertEqual({row["code"] for row in queue}, {"512880.SH", "588710.SH"})
+
+    def test_ingest_prunes_stale_queue_rows_not_in_research_representatives(self) -> None:
+        first_payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-24",
+                "etf_top": [
+                    {"ts_code": "588200.SH", "name": "嘉实上证科创板芯片ETF", "amount": 900.0, "score": 98.0},
+                ],
+            },
+        }
+        second_payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-24",
+                "theme_ranking": [
+                    {
+                        "theme": "硬科技电子/半导体",
+                        "mainline_score_v6": 99.0,
+                        "top_etf": "588170.SH 半导体ETF、159516.SZ 半导体材料ETF",
+                    },
+                ],
+                "etf_top": [
+                    {"ts_code": "588170.SH", "name": "半导体ETF", "amount": 100.0, "score": 99.0},
+                    {"ts_code": "159516.SZ", "name": "半导体材料ETF", "amount": 900.0, "score": 98.0},
+                    {"ts_code": "588200.SH", "name": "嘉实上证科创板芯片ETF", "amount": 800.0, "score": 97.0},
+                ],
+            },
+        }
+        with TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "queue-prune.sqlite"
+            ingest_payload(first_payload, source_url="https://theme.okbbc.com/api/latest", db_path=db_path)
+            ingest_payload(second_payload, source_url="https://theme.okbbc.com/api/latest", db_path=db_path)
+            with closing(connect(db_path)) as conn:
+                queue_codes = {row["code"] for row in list_queue(conn)}
+            self.assertIn("159516.SZ", queue_codes)
+            self.assertNotIn("588200.SH", queue_codes)
 
     def test_requested_prompts_do_not_require_api_index_membership(self) -> None:
         report = {"report_id": "manual_etf_research_request_2026-06-24", "basis_date": "2026-06-24"}

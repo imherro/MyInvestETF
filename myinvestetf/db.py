@@ -794,6 +794,29 @@ def prune_trackable_report(conn: sqlite3.Connection, *, report_id: str, keep_cod
         )
 
 
+def prune_trackable_queue(conn: sqlite3.Connection, *, report_id: str, keep_codes: list[str]) -> None:
+    """Keep current report queue rows aligned with the selected research representatives."""
+    params: tuple[Any, ...]
+    if keep_codes:
+        placeholders = ", ".join("?" for _ in keep_codes)
+        condition = f"report_id = ? AND source_type = ? AND code NOT IN ({placeholders})"
+        params = (report_id, QUEUE_SOURCE_TRACKABLE, *keep_codes)
+    else:
+        condition = "report_id = ? AND source_type = ?"
+        params = (report_id, QUEUE_SOURCE_TRACKABLE)
+    run_ids = [
+        row["run_id"]
+        for row in conn.execute(
+            f"SELECT run_id FROM research_queue WHERE {condition} AND run_id IS NOT NULL",
+            params,
+        )
+    ]
+    conn.execute(f"DELETE FROM research_queue WHERE {condition}", params)
+    if run_ids:
+        placeholders = ", ".join("?" for _ in run_ids)
+        conn.execute(f"DELETE FROM task_queue WHERE run_id IN ({placeholders})", tuple(run_ids))
+
+
 def latest_report(conn: sqlite3.Connection) -> sqlite3.Row | None:
     return conn.execute(
         """

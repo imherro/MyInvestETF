@@ -13,13 +13,13 @@ http://127.0.0.1:8017
 关键字段：
 
 - `schema_version`: `myinvestetf.index.v1`
-- `key_results.primary_output.items`: 当前 ETF 列表
-- `key_results.primary_output.items[].category_key`: 去重后的 ETF 投资暴露类别
+- `key_results.primary_output.items`: 当前 ETF 池列表，包括主线接口 ETF 和本地核心宽基种子
+- `key_results.primary_output.items[].category_key`: ETF 投资暴露类别
 - `key_results.primary_output.items[].valuation_model_type`: `broad_index`、`mainline_theme`、`factor_defensive` 或 `cash_like`
 - `key_results.primary_output.items[].sleeve_key`: `core_wide_etf`、`mainline_etf`、`defensive_quality` 或 `cash_like`
 - `source.upstream_endpoint`: 默认 `https://theme.okbbc.com/api/latest`
-- `source.upstream_result_path`: 默认 `result.etf_top`，兼容旧 `key_results.primary_output.items`
-- `source.source_policy`: `/api/index` 保留上游传入的 ETF 全量列表；本地深研队列才按同一投资暴露只保留成交额最大的代表。
+- `source.upstream_result_path`: 默认 `result.theme_ranking[].top_etf + result.etf_top`，兼容旧 `key_results.primary_output.items`
+- `source.source_policy`: `/api/index` 保留 ETF 池；本地深研队列按每条主线保留一个代表，并追加核心宽基 ETF 代表。
 - `links.latest`: `/api/latest`
 - `constraints.read_only`: `true`
 - `constraints.contains_trade_orders`: `false`

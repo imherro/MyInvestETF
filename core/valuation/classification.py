@@ -35,7 +35,24 @@ def infer_valuation_model_type(item: Mapping[str, object] | None = None, **hints
         return "cash_like"
     if any(word in text for word in ("红利", "低波", "自由现金流", "现金流", "质量", "高股息", "股息")):
         return "factor_defensive"
-    if any(word in text for word in ("沪深300", "中证a500", "中证500", "中证1000", "上证50", "创业板", "科创50", "科创100", "宽基")):
+    if any(
+        word in text
+        for word in (
+            "上证综指",
+            "上证指数",
+            "沪深300",
+            "中证a500",
+            "中证500",
+            "中证1000",
+            "上证50",
+            "创业板",
+            "科创板50",
+            "科创50",
+            "科创板100",
+            "科创100",
+            "宽基",
+        )
+    ):
         return "broad_index"
     return "mainline_theme"
 
@@ -62,4 +79,3 @@ def normalize_sleeve_key(value: object, model_type: str) -> SleeveKey:
     if text in SLEEVE_KEYS:
         return text  # type: ignore[return-value]
     return sleeve_for_valuation_model(model_type)
-
