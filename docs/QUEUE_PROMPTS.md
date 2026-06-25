@@ -34,7 +34,7 @@ python scripts/generate_single_etf_prompt.py --next --claim
 - `task_id` / `run_id`: 对应 `task_queue` 的可追踪 ID。
 - `priority` / `stage`: 队列排序信息。
 - `depends_on_task_type`: 统一为空。
-- `source_type`: `broad_index_representative`、`mainline_representative` 或 `manual_request`；历史任务可能仍为 `trackable_leader`。
+- `source_type`: `broad_index_representative`、`defensive_representative`、`mainline_representative` 或 `manual_request`；历史任务可能仍为 `trackable_leader`。
 - `source_detail`: 上游或手动入口说明。
 
 这些元数据用于追踪自动化执行，不替代报告 schema。

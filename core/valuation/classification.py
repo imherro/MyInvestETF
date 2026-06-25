@@ -31,9 +31,11 @@ def infer_valuation_model_type(item: Mapping[str, object] | None = None, **hints
         source.get("category_key"),
     )
 
+    if any(word in text for word in ("自由现金流", "现金流")):
+        return "factor_defensive"
     if any(word in text for word in ("短融", "货币", "现金", "日利", "添利", "快线", "保证金", "国债逆回购")):
         return "cash_like"
-    if any(word in text for word in ("红利", "低波", "自由现金流", "现金流", "质量", "高股息", "股息")):
+    if any(word in text for word in ("红利", "低波", "质量", "高股息", "股息")):
         return "factor_defensive"
     if any(
         word in text

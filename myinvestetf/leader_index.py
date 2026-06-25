@@ -8,11 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
+from core.valuation import normalize_valuation_model_type, sleeve_for_valuation_model
 
 from .config import DB_PATH, LEADER_INDEX_URL, RAW_DATA_DIR
 from .db import (
     QUEUE_SOURCE_BROAD_INDEX,
+    QUEUE_SOURCE_DEFENSIVE,
     QUEUE_SOURCE_MAINLINE,
     QUEUE_SOURCE_REQUEST,
     QUEUE_SOURCE_TRACKABLE,
@@ -110,6 +111,23 @@ BROAD_INDEX_SEED_ETFS: tuple[dict[str, Any], ...] = (
 )
 BROAD_INDEX_CATEGORY_KEYS = {item["category_key"] for item in BROAD_INDEX_SEED_ETFS}
 BROAD_INDEX_CATEGORY_ORDER = {item["category_key"]: index for index, item in enumerate(BROAD_INDEX_SEED_ETFS)}
+DEFENSIVE_SEED_ETFS: tuple[dict[str, Any], ...] = (
+    {
+        "code": "159399.SZ",
+        "name": "国泰富时中国A股自由现金流聚焦ETF",
+        "theme": "自由现金流收益防御",
+        "category_key": "自由现金流",
+    },
+    {
+        "code": "512890.SH",
+        "name": "华泰柏瑞中证红利低波动ETF",
+        "theme": "红利低波收益防御",
+        "category_key": "红利低波",
+    },
+)
+DEFENSIVE_SEED_CODES = {item["code"] for item in DEFENSIVE_SEED_ETFS}
+DEFENSIVE_CATEGORY_KEYS = {item["category_key"] for item in DEFENSIVE_SEED_ETFS}
+DEFENSIVE_CATEGORY_ORDER = {item["category_key"]: index for index, item in enumerate(DEFENSIVE_SEED_ETFS)}
 
 
 ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
@@ -233,7 +251,7 @@ def _safe_float(value: object) -> float:
 
 
 def etf_model_type(item: dict[str, Any]) -> str:
-    return infer_valuation_model_type(item)
+    return normalize_valuation_model_type(item.get("valuation_model_type"), item)
 
 
 def etf_sleeve_key(item: dict[str, Any]) -> str:
@@ -269,8 +287,10 @@ def _strip_issuer_prefix(name: str) -> str:
 
 
 def _keyword_category_key(item: dict[str, Any]) -> str:
+    explicit_category = _compact_text(item.get("category_key"))
+    if explicit_category and explicit_category not in GENERIC_CATEGORY_VALUES:
+        return explicit_category
     fields = [
-        item.get("category_key"),
         item.get("tracking_index"),
         item.get("underlying_index"),
         item.get("underlying_index_name"),
@@ -456,6 +476,37 @@ def _normalize_broad_index_seed_item(seed: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _normalize_defensive_seed_item(seed: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(seed)
+    code = str(normalized["code"])
+    score = normalized.get("deep_score") or 78.0
+    normalized.update(
+        {
+            "code": code,
+            "xueqiu_url": normalized.get("xueqiu_url") or _xueqiu_url(code),
+            "themes": [normalized.get("theme") or normalized.get("category_key") or "收益防御"],
+            "deep_rating": normalized.get("deep_rating") or _score_rating(score),
+            "deep_label": normalized.get("deep_label") or "收益防御ETF",
+            "deep_score": score,
+            "shadow_observation_eligible": True,
+            "candidate_leader_tier": "收益防御",
+            "candidate_leader_claim": "本地收益防御 ETF 种子，用于强制纳入自由现金流和红利低波研究对象",
+            "candidate_evidence_score": score,
+            "candidate_evidence_count": 1,
+            "candidate_hard_evidence_count": 1,
+            "market": normalized.get("market") or {},
+            "scores": normalized.get("scores") or {"mainline_strength": score, "theme_binding": score, "evidence_quality": score},
+            "risk_flags": normalized.get("risk_flags") or [],
+            "data_gaps": normalized.get("data_gaps")
+            or ["收益防御种子需要通过 Tushare 补齐净值、成交额、份额、估值分位、股息或自由现金流因子输入。"],
+            "source_path": "local.defensive_seed",
+        }
+    )
+    normalized["valuation_model_type"] = "factor_defensive"
+    normalized["sleeve_key"] = sleeve_for_valuation_model("factor_defensive")
+    return normalized
+
+
 def _theme_ranking_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     result = payload.get("result") or {}
     if not isinstance(result, dict):
@@ -541,6 +592,13 @@ def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 clean_items_by_code[normalized["code"]] = normalized
             else:
                 _merge_item(existing, normalized)
+        for seed in DEFENSIVE_SEED_ETFS:
+            normalized = _normalize_defensive_seed_item(seed)
+            existing = clean_items_by_code.get(normalized["code"])
+            if existing is None:
+                clean_items_by_code[normalized["code"]] = normalized
+            else:
+                _merge_item(existing, normalized)
     return list(clean_items_by_code.values())
 
 
@@ -570,9 +628,15 @@ def is_broad_index_item(item: dict[str, Any]) -> bool:
     return etf_model_type(item) == "broad_index" or etf_category_key(item) in BROAD_INDEX_CATEGORY_KEYS
 
 
+def is_defensive_seed_item(item: dict[str, Any]) -> bool:
+    return str(item.get("code") or "") in DEFENSIVE_SEED_CODES
+
+
 def queue_source_for_item(item: dict[str, Any]) -> str:
     if is_broad_index_item(item):
         return QUEUE_SOURCE_BROAD_INDEX
+    if is_defensive_seed_item(item):
+        return QUEUE_SOURCE_DEFENSIVE
     if (
         item.get("theme_rank") is not None
         or item.get("top_etf_rank") is not None
@@ -587,6 +651,8 @@ def queue_source_detail_for_item(item: dict[str, Any]) -> str:
     source_path = str(item.get("source_path") or "")
     if is_broad_index_item(item):
         return f"核心宽基代表：{category_key or item.get('theme') or item['code']}；来源：{source_path or 'local.broad_index_seed/result.etf_top'}"
+    if is_defensive_seed_item(item):
+        return f"收益防御代表：{category_key or item.get('theme') or item['code']}；来源：{source_path or 'local.defensive_seed'}"
     if item.get("top_etf_rank") is not None and source_path != "result.theme_ranking.top_etf":
         source_path = f"{source_path or 'result.etf_top'} + result.theme_ranking.top_etf"
     return f"主线代表：{item.get('theme') or category_key or item['code']}；来源：{source_path or 'result.theme_ranking.top_etf'}"
@@ -595,7 +661,9 @@ def queue_source_detail_for_item(item: dict[str, Any]) -> str:
 def research_queue_sort_key(item: dict[str, Any]) -> tuple[int, int, float, str]:
     if is_broad_index_item(item):
         return (0, BROAD_INDEX_CATEGORY_ORDER.get(etf_category_key(item), 999), -_liquidity_amount(item), item["code"])
-    return (1, 999, -_safe_float(item.get("score") or item.get("deep_score")), item["code"])
+    if is_defensive_seed_item(item):
+        return (1, DEFENSIVE_CATEGORY_ORDER.get(etf_category_key(item), 999), -_liquidity_amount(item), item["code"])
+    return (2, 999, -_safe_float(item.get("score") or item.get("deep_score")), item["code"])
 
 
 def research_representatives(items: list[dict[str, Any]], payload: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -615,7 +683,11 @@ def research_representatives(items: list[dict[str, Any]], payload: dict[str, Any
     broad_representatives: list[dict[str, Any]] = []
     for item in _deduplicate_by_category(broad_items):
         _append_unique(broad_representatives, item)
-    representatives = broad_representatives + mainline_representatives
+    defensive_items = [item for item in items if is_defensive_seed_item(item)]
+    defensive_representatives: list[dict[str, Any]] = []
+    for item in _deduplicate_by_category(defensive_items):
+        _append_unique(defensive_representatives, item)
+    representatives = broad_representatives + defensive_representatives + mainline_representatives
     return representatives or _deduplicate_by_category(items)
 
 

@@ -67,15 +67,15 @@ http://127.0.0.1:8017
 
 队列策略：
 
-- 只展示当前主线报告的 `mainline_representative`、`broad_index_representative` 任务，以及最新一次手动请求的 `manual_request` 任务；历史报告队列保留在数据库中但不作为当前队列输出。
+- 只展示当前主线报告的 `mainline_representative`、`broad_index_representative`、`defensive_representative` 任务，以及最新一次手动请求的 `manual_request` 任务；历史报告队列保留在数据库中但不作为当前队列输出。
 - `trackable_leader` 仅作为历史兼容来源保留，不再作为当前自动队列的新写入来源。
 - `broad_index`、`mainline_theme`、`factor_defensive` 会进入单一 `research` 队列。
 - `cash_like` 不进入深度研究队列，只作为现金替代资格监控对象。
 
 来源字段：
 
-- `source_type`: `broad_index_representative`、`mainline_representative`、`manual_request`；历史数据可能还有 `trackable_leader`
-- `source_label`: `核心宽基`、`主线代表`、`其他请求`
+- `source_type`: `broad_index_representative`、`defensive_representative`、`mainline_representative`、`manual_request`；历史数据可能还有 `trackable_leader`
+- `source_label`: `核心宽基`、`收益防御代表`、`主线代表`、`其他请求`
 
 ## `/api/etfs/{code}`
 

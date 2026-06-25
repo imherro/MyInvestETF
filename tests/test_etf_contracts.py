@@ -7,6 +7,7 @@ import unittest
 
 from myinvestetf.db import (
     QUEUE_SOURCE_BROAD_INDEX,
+    QUEUE_SOURCE_DEFENSIVE,
     QUEUE_SOURCE_MAINLINE,
     QUEUE_SOURCE_REQUEST,
     connect,
@@ -193,8 +194,12 @@ class ETFContractTests(unittest.TestCase):
         representatives = research_representatives(items, payload)
         self.assertIn("515050.SH", {item["code"] for item in items})
         self.assertIn("510300.SH", {item["code"] for item in items})
+        self.assertIn("159399.SZ", {item["code"] for item in items})
+        self.assertIn("512890.SH", {item["code"] for item in items})
         self.assertIn("159516.SZ", [item["code"] for item in representatives])
         self.assertIn("515050.SH", [item["code"] for item in representatives])
+        self.assertIn("159399.SZ", [item["code"] for item in representatives])
+        self.assertIn("512890.SH", [item["code"] for item in representatives])
 
     def test_core_broad_index_seeds_are_research_representatives(self) -> None:
         payload = {
@@ -211,6 +216,28 @@ class ETFContractTests(unittest.TestCase):
         by_code = {item["code"]: item for item in representatives}
         for code in ["510210.SH", "510050.SH", "510300.SH", "510500.SH", "512100.SH", "159915.SZ", "588000.SH"]:
             self.assertEqual(by_code[code]["valuation_model_type"], "broad_index")
+
+    def test_defensive_seeds_are_research_representatives(self) -> None:
+        payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-24",
+                "theme_ranking": [
+                    {"theme": "AI算力/通信", "mainline_score_v6": 90, "top_etf": "515050.SH 5GETF"},
+                ],
+                "etf_top": [],
+            },
+        }
+        representatives = research_representatives(primary_items(payload), payload)
+        by_code = {item["code"]: item for item in representatives}
+        expected = {
+            "159399.SZ": "自由现金流",
+            "512890.SH": "红利低波",
+        }
+        for code, category in expected.items():
+            self.assertEqual(by_code[code]["valuation_model_type"], "factor_defensive")
+            self.assertEqual(by_code[code]["sleeve_key"], "defensive_quality")
+            self.assertEqual(by_code[code]["category_key"], category)
 
     def test_research_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}
@@ -403,10 +430,16 @@ class ETFContractTests(unittest.TestCase):
                 source_by_code = {row["code"]: row["source_type"] for row in queue}
                 priority_by_code = {row["code"]: row["priority"] for row in queue}
             self.assertIn("159516.SZ", queue_codes)
+            self.assertIn("159399.SZ", queue_codes)
+            self.assertIn("512890.SH", queue_codes)
             self.assertNotIn("588200.SH", queue_codes)
             self.assertEqual(source_by_code["159516.SZ"], QUEUE_SOURCE_MAINLINE)
             self.assertEqual(source_by_code["510300.SH"], QUEUE_SOURCE_BROAD_INDEX)
+            self.assertEqual(source_by_code["159399.SZ"], QUEUE_SOURCE_DEFENSIVE)
+            self.assertEqual(source_by_code["512890.SH"], QUEUE_SOURCE_DEFENSIVE)
             self.assertLess(priority_by_code["510300.SH"], priority_by_code["159516.SZ"])
+            self.assertLess(priority_by_code["159399.SZ"], priority_by_code["159516.SZ"])
+            self.assertLess(priority_by_code["512890.SH"], priority_by_code["159516.SZ"])
 
     def test_requested_prompts_do_not_require_api_index_membership(self) -> None:
         report = {"report_id": "manual_etf_research_request_2026-06-24", "basis_date": "2026-06-24"}

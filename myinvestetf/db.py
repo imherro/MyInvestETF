@@ -16,8 +16,9 @@ REPORT_SCHEMA_VERSION = "etf_research_report.v1"
 QUEUE_SOURCE_TRACKABLE = "trackable_leader"
 QUEUE_SOURCE_MAINLINE = "mainline_representative"
 QUEUE_SOURCE_BROAD_INDEX = "broad_index_representative"
+QUEUE_SOURCE_DEFENSIVE = "defensive_representative"
 QUEUE_SOURCE_REQUEST = "manual_request"
-AUTO_QUEUE_SOURCES = (QUEUE_SOURCE_TRACKABLE, QUEUE_SOURCE_MAINLINE, QUEUE_SOURCE_BROAD_INDEX)
+AUTO_QUEUE_SOURCES = (QUEUE_SOURCE_TRACKABLE, QUEUE_SOURCE_MAINLINE, QUEUE_SOURCE_BROAD_INDEX, QUEUE_SOURCE_DEFENSIVE)
 
 
 def utc_now() -> str:
@@ -268,6 +269,8 @@ def queue_source_label(source_type: object) -> str:
         return "主线代表"
     if source_type == QUEUE_SOURCE_BROAD_INDEX:
         return "核心宽基"
+    if source_type == QUEUE_SOURCE_DEFENSIVE:
+        return "收益防御代表"
     if source_type == QUEUE_SOURCE_REQUEST:
         return "其他请求"
     return str(source_type or "未知来源")

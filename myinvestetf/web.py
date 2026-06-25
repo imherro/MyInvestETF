@@ -784,6 +784,10 @@ def is_broad_index_leader(row: object) -> bool:
     return leader_model_info(row).get("valuation_model_type") == "broad_index"
 
 
+def is_defensive_leader(row: object) -> bool:
+    return leader_model_info(row).get("valuation_model_type") == "factor_defensive"
+
+
 def render_etf_cards(
     rows: list[object],
     research_by_code: dict[str, object] | None = None,
@@ -854,7 +858,10 @@ def render_home() -> bytes:
         display_leaders = leaders
 
     broad_leaders = [row for row in display_leaders if is_broad_index_leader(row)]
-    mainline_leaders = [row for row in display_leaders if not is_broad_index_leader(row)]
+    defensive_leaders = [row for row in display_leaders if is_defensive_leader(row)]
+    mainline_leaders = [
+        row for row in display_leaders if not is_broad_index_leader(row) and not is_defensive_leader(row)
+    ]
     research_by_code: dict[str, object] = {}
     prices_by_code: dict[str, list[object]] = {}
     with closing(connect(DB_PATH)) as conn:
@@ -874,8 +881,8 @@ def render_home() -> bytes:
         <div class="page-title-row">
           <div>
             <h1>ETF研究代表</h1>
-            <p class="muted">ETF 池来自 <code>theme_ranking.top_etf</code>、<code>result.etf_top</code> 和本地核心宽基种子。</p>
-            <p class="muted">当前 ETF 池 {esc(len(leaders))} 只；主屏显示 {esc(len(display_leaders))} 只研究代表：核心宽基 {esc(len(broad_leaders))} 只，主线代表 {esc(len(mainline_leaders))} 只。</p>
+            <p class="muted">ETF 池来自 <code>theme_ranking.top_etf</code>、<code>result.etf_top</code>、本地核心宽基种子和收益防御种子。</p>
+            <p class="muted">当前 ETF 池 {esc(len(leaders))} 只；主屏显示 {esc(len(display_leaders))} 只研究代表：核心宽基 {esc(len(broad_leaders))} 只，收益防御 {esc(len(defensive_leaders))} 只，主线代表 {esc(len(mainline_leaders))} 只。</p>
           </div>
           <div class="report-box">
             <span>report_id</span>
@@ -894,6 +901,16 @@ def render_home() -> bytes:
         <span class="section-count">{esc(len(broad_leaders))} 只</span>
       </div>
       <div class="etf-grid">{render_etf_cards(broad_leaders, research_by_code, prices_by_code)}</div>
+    </section>
+    <section class="content representative-section">
+      <div class="section-heading-row">
+        <div>
+          <h2>收益防御ETF</h2>
+          <p class="muted">固定纳入自由现金流和红利低波代表，使用收益防御估值逻辑，不从主线强度推导。</p>
+        </div>
+        <span class="section-count">{esc(len(defensive_leaders))} 只</span>
+      </div>
+      <div class="etf-grid">{render_etf_cards(defensive_leaders, research_by_code, prices_by_code)}</div>
     </section>
     <section class="content representative-section">
       <div class="section-heading-row">

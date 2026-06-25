@@ -18,7 +18,8 @@ ETF 深研必须一次只研究一只 ETF。自动化只分为两类：
 - 默认读取 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf` 和 `result.etf_top`，并兼容旧 `/api/index` 结构。
 - 每条主线至少保留一个 ETF 代表进入研究队列；同一主线内优先选择有成交额且成交额最大的 ETF，缺成交额时使用 `top_etf` 的第一位。
 - 本地独立补齐上证综指、上证50、沪深300、中证500、中证1000、创业板、科创50 等核心宽基 ETF 研究对象；宽基不是从可跟踪主线龙头推导。
-- 入队顺序先核心宽基、后主线代表；队列来源分别写为 `broad_index_representative` 和 `mainline_representative`。
+- 本地独立补齐 `159399.SZ` 自由现金流 ETF 和 `512890.SH` 红利低波 ETF 作为收益防御研究对象；收益防御不是从主线强度推导。
+- 入队顺序先核心宽基、再收益防御、后主线代表；队列来源分别写为 `broad_index_representative`、`defensive_representative` 和 `mainline_representative`。
 - 非现金替代 ETF 每只只生成一条 `research` 完整深研任务。
 - 短融、日利、货币、现金类 ETF 默认不生成深度研究任务。
 - 本任务只做入队和状态汇总，不领取研究任务。
