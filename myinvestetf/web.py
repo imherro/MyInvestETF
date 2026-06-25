@@ -1192,6 +1192,13 @@ def _render_close_price_valuation_chart(
 
     first_price = price_points[0]
     last_price = price_points[-1]
+    current_price = float(last_price["close"])
+    y_current = _chart_y(current_price, y_min, y_max, top, plot_height)
+    current_label = f"当前价 {fmt_num(current_price)}"
+    current_label_width = 96.0
+    current_label_height = 20.0
+    current_label_x = max(left + 6.0, plot_right - current_label_width)
+    current_label_y = min(max(y_current - current_label_height - 6.0, top + 4.0), plot_bottom - current_label_height - 4.0)
     close_tooltip = (
         f"收盘价折线 | 起点 {first_price['date']} 收 {fmt_num(first_price['close'])} | "
         f"终点 {last_price['date']} 收 {fmt_num(last_price['close'])}"
@@ -1273,10 +1280,17 @@ def _render_close_price_valuation_chart(
             {''.join(mid_lines)}
             {''.join(markers)}
           </g>
+          <g class="current-price-layer">
+            <title>当前价格 {fmt_num(current_price)}，截至 {esc(last_price['date'])}</title>
+            <line class="current-price-line" x1="{left:.1f}" y1="{y_current:.1f}" x2="{plot_right:.1f}" y2="{y_current:.1f}"></line>
+            <rect class="current-price-label-bg" x="{current_label_x:.1f}" y="{current_label_y:.1f}" width="{current_label_width:.1f}" height="{current_label_height:.1f}" rx="4"></rect>
+            <text class="current-price-label" x="{current_label_x + current_label_width - 8:.1f}" y="{current_label_y + 14:.1f}" text-anchor="end">{esc(current_label)}</text>
+          </g>
           {''.join(x_labels)}
         </svg>
         <div class="valuation-legend">
           <span><i class="legend-close-line"></i>2024-09-24以来收盘价折线</span>
+          <span><i class="legend-current-line"></i>当前价格</span>
           <span><i class="legend-band"></i>保守-乐观区间</span>
           <span><i class="legend-line"></i>参考价格中枢</span>
           <span><i class="legend-dot"></i>完整深研点</span>

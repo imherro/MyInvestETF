@@ -550,6 +550,9 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("2024-09-24以来收盘价", html)
         self.assertIn("2024-09-24以来收盘价折线叠加ETF参考价格区间图", html)
         self.assertIn('class="close-price-line"', html)
+        self.assertIn('class="current-price-line"', html)
+        self.assertIn("当前价 4.10", html)
+        self.assertIn("当前价格", html)
         self.assertNotIn("kline-candle", html)
 
     def test_home_card_uses_research_and_price_cache_for_broad_seed(self) -> None:

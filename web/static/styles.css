@@ -581,6 +581,28 @@ tr:last-child td {
   stroke-width: 2;
 }
 
+.current-price-layer {
+  pointer-events: none;
+}
+
+.current-price-line {
+  stroke: rgba(220, 38, 38, 0.85);
+  stroke-dasharray: 7 5;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.current-price-label-bg {
+  fill: rgba(255, 255, 255, 0.92);
+  stroke: rgba(220, 38, 38, 0.28);
+}
+
+.current-price-label {
+  fill: #b91c1c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .valuation-band {
   fill: rgba(15, 118, 110, 0.16);
 }
@@ -649,6 +671,11 @@ tr:last-child td {
 .legend-close-line {
   height: 0 !important;
   border-top: 3px solid rgba(37, 99, 235, 0.82);
+}
+
+.legend-current-line {
+  height: 0 !important;
+  border-top: 2px dashed rgba(220, 38, 38, 0.85);
 }
 
 .legend-band {
