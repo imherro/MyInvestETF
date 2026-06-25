@@ -488,7 +488,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual(signal["liquidity_score"], 80.0)
         self.assertEqual(signal["current_price"], 4.05)
 
-    def test_valuation_chart_uses_price_language_and_explains_missing_kline(self) -> None:
+    def test_valuation_chart_uses_price_language_and_explains_missing_close_line(self) -> None:
         runs = [
             {
                 "valuation_low": 3.7,
@@ -501,10 +501,10 @@ class ETFContractTests(unittest.TestCase):
         ]
         html = render_valuation_chart(runs, [])
         self.assertIn("ETF参考价格区间历史", html)
-        self.assertIn("行情K线待入库", html)
+        self.assertIn("2024-09-24以来收盘价待入库", html)
         self.assertNotIn("ETF参考价值区间历史", html)
 
-    def test_valuation_chart_renders_kline_when_price_cache_exists(self) -> None:
+    def test_valuation_chart_renders_close_line_when_price_cache_exists(self) -> None:
         runs = [
             {
                 "valuation_low": 3.7,
@@ -520,8 +520,10 @@ class ETFContractTests(unittest.TestCase):
             {"trade_date": "2026-06-24", "open_price": 4.05, "high_price": 4.2, "low_price": 4.0, "close_price": 4.1},
         ]
         html = render_valuation_chart(runs, prices)
-        self.assertIn("近期价格K线", html)
-        self.assertIn("K线叠加ETF参考价格区间图", html)
+        self.assertIn("2024-09-24以来收盘价", html)
+        self.assertIn("2024-09-24以来收盘价折线叠加ETF参考价格区间图", html)
+        self.assertIn('class="close-price-line"', html)
+        self.assertNotIn("kline-candle", html)
 
     def test_home_card_uses_research_and_price_cache_for_broad_seed(self) -> None:
         leader = {
