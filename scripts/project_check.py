@@ -44,7 +44,10 @@ def main() -> int:
 
     config_source = (ROOT / "myinvestetf" / "config.py").read_text(encoding="utf-8")
     leader_source = (ROOT / "myinvestetf" / "leader_index.py").read_text(encoding="utf-8")
+    web_source = (ROOT / "myinvestetf" / "web.py").read_text(encoding="utf-8")
+    ok &= check("https://invest.okbbc.com/header.js" in config_source, "unified header script is wired")
     ok &= check("https://invest.okbbc.com/footer.js" in config_source, "unified footer script is wired")
+    ok &= check("data-myinvest-header" in web_source and "data-myinvest-footer" in web_source, "unified shell mount points are wired")
     ok &= check('LEADER_INDEX_URL = "https://theme.okbbc.com/api/latest"' in config_source, "upstream source is theme /api/latest")
     ok &= check("themes[].stock_leaders" not in leader_source, "ingest does not expand from stock_leaders")
     ok &= check("ETFResearchReport" in leader_source, "ETF report prompt schema is wired")

@@ -23,7 +23,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 参考价值区间和 signal 由 `core/valuation` 的确定性评分引擎生成，LLM 只负责构建输入和解释，不负责最终计算。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
-- 页面 footer 统一加载 `https://invest.okbbc.com/footer.js`。
+- 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
 - `.env`、本地 SQLite、原始抓取 JSON 和临时产物不提交。
 
 ## 系统架构

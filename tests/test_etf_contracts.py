@@ -15,7 +15,7 @@ from myinvestetf.db import (
     upsert_report,
     upsert_trackable_leader,
 )
-from myinvestetf.config import FOOTER_SCRIPT_URL, STATIC_ASSET_VERSION
+from myinvestetf.config import FOOTER_SCRIPT_URL, HEADER_SCRIPT_URL, STATIC_ASSET_VERSION
 from myinvestetf.leader_index import (
     build_research_prompt,
     build_requested_research_prompt,
@@ -280,21 +280,18 @@ class ETFContractTests(unittest.TestCase):
         item = {"code": "510300.SH", "name": "沪深300ETF"}
         self.assertIn("不要求出现在 /api/index", build_requested_research_prompt(item, report))
 
-    def test_layout_uses_footer_and_etf_brand(self) -> None:
+    def test_layout_uses_unified_header_footer_shell(self) -> None:
         page = render_layout("title", "<p>body</p>").decode("utf-8")
-        self.assertIn("MyInvestETF", page)
-        self.assertIn(f'<script src="{FOOTER_SCRIPT_URL}" defer></script>', page)
+        self.assertIn('<div data-myinvest-header></div>', page)
+        self.assertIn('<div data-myinvest-footer></div>', page)
+        self.assertIn(f'<script src="{HEADER_SCRIPT_URL}" data-target="[data-myinvest-header]" defer></script>', page)
+        self.assertIn(f'<script src="{FOOTER_SCRIPT_URL}" data-target="[data-myinvest-footer]" defer></script>', page)
         self.assertIn(f'/static/styles.css?v={STATIC_ASSET_VERSION}', page)
 
-    def test_layout_exposes_header_navigation_links(self) -> None:
+    def test_layout_removes_local_header_navigation(self) -> None:
         page = render_layout("title", "<p>body</p>").decode("utf-8")
-        self.assertIn('<nav class="top-nav">', page)
-        self.assertIn('<a href="/">可跟踪ETF</a>', page)
-        self.assertIn('<a href="/api/queue">研究队列</a>', page)
-        self.assertIn('<a href="/api/index">主结果API</a>', page)
-        self.assertIn('<a href="/api/latest">研究成果API</a>', page)
-        self.assertIn('href="https://theme.okbbc.com/api/latest"', page)
-        self.assertIn('target="_blank" rel="noopener noreferrer">上游主线</a>', page)
+        self.assertNotIn('<header class="app-header">', page)
+        self.assertNotIn('<nav class="top-nav">', page)
 
     def test_home_queue_rows_are_grouped_by_etf(self) -> None:
         rows = [

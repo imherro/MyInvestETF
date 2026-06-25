@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
-from .config import DB_PATH, DEFAULT_HOST, DEFAULT_PORT, FOOTER_SCRIPT_URL, ROOT, STATIC_ASSET_VERSION
+from .config import DB_PATH, DEFAULT_HOST, DEFAULT_PORT, FOOTER_SCRIPT_URL, HEADER_SCRIPT_URL, ROOT, STATIC_ASSET_VERSION
 from .db import (
     connect,
     get_known_leader,
@@ -203,20 +203,13 @@ def render_layout(title: str, body: str) -> bytes:
   <link rel="stylesheet" href="/static/styles.css?v={STATIC_ASSET_VERSION}">
 </head>
 <body>
-  <header class="app-header">
-    <a class="brand" href="/">MyInvestETF</a>
-    <nav class="top-nav">
-      <a href="/">可跟踪ETF</a>
-      <a href="/api/queue">研究队列</a>
-      <a href="/api/index">主结果API</a>
-      <a href="/api/latest">研究成果API</a>
-      <a href="https://theme.okbbc.com/api/latest" target="_blank" rel="noopener noreferrer">上游主线</a>
-    </nav>
-  </header>
+  <div data-myinvest-header></div>
   <main>
 {body}
   </main>
-  <script src="{FOOTER_SCRIPT_URL}" defer></script>
+  <div data-myinvest-footer></div>
+  <script src="{HEADER_SCRIPT_URL}" data-target="[data-myinvest-header]" defer></script>
+  <script src="{FOOTER_SCRIPT_URL}" data-target="[data-myinvest-footer]" defer></script>
 </body>
 </html>
 """

@@ -50,10 +50,11 @@ flowchart LR
 
 ## 页面约束
 
-所有页面底部统一加载：
+所有页面首尾统一加载：
 
 ```html
-<script src="https://invest.okbbc.com/footer.js" defer></script>
+<script src="https://invest.okbbc.com/header.js" data-target="[data-myinvest-header]" defer></script>
+<script src="https://invest.okbbc.com/footer.js" data-target="[data-myinvest-footer]" defer></script>
 ```
 
 Web 侧只读展示。主动研究入口只创建队列和跳转，不直接执行深研。
