@@ -9,7 +9,7 @@
 - 主线 ETF 代表进入研究队列时，队列来源标记为 `mainline_representative`。
 - Tushare：A 股 ETF 结构化主源，使用本地 `.env` 中的 `TUSHARE_TOKEN`。
 - `fund_basic`：基金基础信息。
-- `fund_daily`：ETF 日行情。
+- `fund_daily`：ETF 日行情，写入本地 `etf_daily_prices` 后用于详情页当前价格和 K 线叠加图。
 - `fund_nav`：基金净值。
 - `fund_share`：基金份额变化，可作为申赎和资金流代理。
 - `fund_portfolio`：已披露持仓，注意披露滞后。

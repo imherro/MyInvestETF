@@ -54,4 +54,5 @@ ETF 深研必须一次只研究一只 ETF。自动化只分为两类：
 3. 构建 `assembly_input`，包括 `product_profile`、`holdings_inputs`、`valuation_inputs`、`model_specific_inputs`、`liquidity_inputs`、`tracking_inputs`、`risk_signals`、`evidence`、`assumptions`、`data_gaps`。
 4. 运行 `python scripts/build_research_report.py --audit-db data/local/myinvestetf.sqlite <assembly_input>`。
 5. 运行 `python scripts/import_research_run.py <report_json>` 入库。
-6. 验证 `/api/index`、`/api/latest` 和 ETF 详情页可用。
+6. 运行 `python scripts/update_etf_prices.py --all-system` 刷新 `fund_daily` 日行情缓存，用于 ETF 详情页 K 线叠加图。
+7. 验证 `/api/index`、`/api/latest` 和 ETF 详情页可用。

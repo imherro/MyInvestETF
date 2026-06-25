@@ -368,6 +368,9 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
     liquidity_score = _num(valuation.get("liquidity_score")) if isinstance(valuation, dict) else None
     tracking_score = _num(valuation.get("tracking_score")) if isinstance(valuation, dict) else None
     portfolio_role_score = _num(valuation.get("portfolio_role_score")) if isinstance(valuation, dict) else None
+    current_price = _num(valuation.get("current_price")) if isinstance(valuation, dict) else None
+    nav = _num(valuation.get("nav")) if isinstance(valuation, dict) else None
+    premium_discount = _num(valuation.get("premium_discount")) if isinstance(valuation, dict) else None
     mainline_validity_score = _num(valuation.get("mainline_validity_score")) if isinstance(valuation, dict) else None
     valuation_tolerance_score = _num(valuation.get("valuation_tolerance_score")) if isinstance(valuation, dict) else None
     crowding_risk_score = _num(valuation.get("crowding_risk_score")) if isinstance(valuation, dict) else None
@@ -394,6 +397,9 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
         "liquidity_score": liquidity_score,
         "tracking_score": tracking_score,
         "portfolio_role_score": portfolio_role_score,
+        "current_price": current_price,
+        "nav": nav,
+        "premium_discount": premium_discount,
         "risk_adjusted_score": risk_adjusted_score,
         "mainline_validity_score": mainline_validity_score,
         "valuation_tolerance_score": valuation_tolerance_score,
@@ -593,6 +599,11 @@ def metric_explanation(label: str, value: object) -> tuple[str, str]:
             "综合入口评分",
             f"{score_state(value, kind='deep_score')}。衡量这只ETF是否值得进入深研队列，不等于最终底仓结论。",
         )
+    if label == "当前价格":
+        return (
+            "价格快照",
+            "优先使用本地日行情最新收盘价；如果行情未缓存，则使用最新完整深研中的 current_price 或入口收盘价。",
+        )
     if label == "收盘":
         return (
             "行情快照",
@@ -619,6 +630,8 @@ def metric_explanation(label: str, value: object) -> tuple[str, str]:
 def metric_signal(label: str, value: object) -> tuple[str, str]:
     if label in {"深研", "深研分"}:
         return score_signal(value, kind="deep_score")
+    if label == "当前价格":
+        return "neutral", "价格快照"
     if label == "收盘":
         return "neutral", "行情快照"
     if label in {"PE TTM", "PB"}:
@@ -927,6 +940,36 @@ def _daily_price_points(prices: list[object]) -> list[dict[str, object]]:
     return points
 
 
+def _latest_cached_close(prices: list[object]) -> float | None:
+    points = _daily_price_points(prices)
+    if not points:
+        return None
+    points.sort(key=lambda item: str(item["date"]))
+    return _num(points[-1].get("close"))
+
+
+def _research_current_price(row: object | None) -> float | None:
+    if row is None:
+        return None
+    raw = load_json(_row_value(row, "raw_json"), {})
+    valuation = raw.get("valuation") if isinstance(raw, dict) else {}
+    if not isinstance(valuation, dict):
+        return None
+    return _num(valuation.get("current_price"))
+
+
+def _display_current_price(latest: object | None, prices: list[object], market: object) -> float | None:
+    cached_close = _latest_cached_close(prices)
+    if cached_close is not None:
+        return cached_close
+    research_price = _research_current_price(latest)
+    if research_price is not None:
+        return research_price
+    if isinstance(market, dict):
+        return _num(market.get("close"))
+    return None
+
+
 def _parsed_date(value: object) -> object | None:
     try:
         return datetime.fromisoformat(str(value)[:10]).date()
@@ -944,7 +987,7 @@ def _valuation_price_start(runs: list[object]) -> str | None:
 
 def _render_plain_valuation_chart(points: list[dict[str, object]]) -> str:
     if not points:
-        return render_empty_section("合理估值区间历史")
+        return render_empty_section("ETF参考价格区间历史")
 
     width = 760.0
     height = 320.0
@@ -1022,10 +1065,10 @@ def _render_plain_valuation_chart(points: list[dict[str, object]]) -> str:
         )
 
     return f"""<section class="section-block">
-      <h2>ETF参考价值区间历史</h2>
+      <h2>ETF参考价格区间历史</h2>
       <div class="valuation-chart">
-        <svg class="valuation-history-svg" viewBox="0 0 {width:.0f} {height:.0f}" role="img" aria-label="ETF参考价值区间随时间变化图">
-          <title>ETF参考价值区间随时间变化图</title>
+        <svg class="valuation-history-svg" viewBox="0 0 {width:.0f} {height:.0f}" role="img" aria-label="ETF参考价格区间随时间变化图">
+          <title>ETF参考价格区间随时间变化图</title>
           <line class="valuation-axis-line" x1="{left:.1f}" y1="{top:.1f}" x2="{left:.1f}" y2="{height - bottom:.1f}"></line>
           <line class="valuation-axis-line" x1="{left:.1f}" y1="{height - bottom:.1f}" x2="{width - right:.1f}" y2="{height - bottom:.1f}"></line>
           <text class="valuation-axis-title" x="{left:.1f}" y="16" text-anchor="start">价格 CNY/fund_share</text>
@@ -1039,9 +1082,10 @@ def _render_plain_valuation_chart(points: list[dict[str, object]]) -> str:
         </svg>
         <div class="valuation-legend">
           <span><i class="legend-band"></i>保守-乐观区间</span>
-          <span><i class="legend-line"></i>参考价值中枢</span>
+          <span><i class="legend-line"></i>参考价格中枢</span>
           <span><i class="legend-dot"></i>单次完整深研</span>
         </div>
+        <p class="chart-note">行情K线待入库，当前仅显示完整深研生成的参考价格区间。</p>
       </div>
     </section>"""
 
@@ -1186,10 +1230,10 @@ def _render_kline_valuation_chart(
     first_date = price_points[0]["date"]
     last_date = price_points[-1]["date"]
     return f"""<section class="section-block">
-      <h2>ETF参考价值区间历史</h2>
+      <h2>ETF参考价格区间历史</h2>
       <div class="valuation-chart">
-        <svg class="valuation-history-svg" viewBox="0 0 {width:.0f} {height:.0f}" role="img" aria-label="K线叠加ETF参考价值区间图">
-          <title>K线叠加ETF参考价值区间图</title>
+        <svg class="valuation-history-svg" viewBox="0 0 {width:.0f} {height:.0f}" role="img" aria-label="K线叠加ETF参考价格区间图">
+          <title>K线叠加ETF参考价格区间图</title>
           <line class="valuation-axis-line" x1="{left:.1f}" y1="{top:.1f}" x2="{left:.1f}" y2="{plot_bottom:.1f}"></line>
           <line class="valuation-axis-line" x1="{left:.1f}" y1="{plot_bottom:.1f}" x2="{plot_right:.1f}" y2="{plot_bottom:.1f}"></line>
           <text class="valuation-axis-title" x="{left:.1f}" y="16" text-anchor="start">价格 CNY/fund_share</text>
@@ -1205,9 +1249,9 @@ def _render_kline_valuation_chart(
           {''.join(x_labels)}
         </svg>
         <div class="valuation-legend">
-          <span><i class="legend-kline"></i>近期K线</span>
+          <span><i class="legend-kline"></i>近期价格K线</span>
           <span><i class="legend-band"></i>保守-乐观区间</span>
-          <span><i class="legend-line"></i>参考价值中枢</span>
+          <span><i class="legend-line"></i>参考价格中枢</span>
           <span><i class="legend-dot"></i>完整深研点</span>
         </div>
       </div>
@@ -1217,7 +1261,7 @@ def _render_kline_valuation_chart(
 def render_valuation_chart(runs: list[object], prices: list[object] | None = None) -> str:
     points = _valuation_chart_points(runs)
     if not points:
-        return render_empty_section("ETF参考价值区间历史")
+        return render_empty_section("ETF参考价格区间历史")
     price_points = _daily_price_points(prices or [])
     if price_points:
         return _render_kline_valuation_chart(points, price_points)
@@ -1310,7 +1354,7 @@ def render_signal_matrix(
               {signal_item("估值框架", valuation_signal.get("valuation_model_label"))}
               {signal_item("五仓角色", valuation_signal.get("sleeve_label"))}
               {signal_item("适配状态", valuation_signal.get("label"))}
-              {signal_item("参考区间", range_text, valuation_signal.get("source"))}
+              {signal_item("参考价格区间", range_text, valuation_signal.get("source"))}
               {model_specific_items}
               {signal_item("流动性", fmt_num(valuation_signal.get("liquidity_score")))}
               {signal_item("跟踪质量", fmt_num(valuation_signal.get("tracking_score")))}
@@ -1424,6 +1468,7 @@ def render_etf_page(code: str) -> bytes:
     if valuation_signal.get("valuation_model_type") is None:
         valuation_signal.update(model_info)
     decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
+    current_price = _display_current_price(latest if latest else None, chart_prices, market)
     rating_label = (
         f"{leader['deep_rating'] or ''} {leader['deep_label'] or ''}".strip()
         if leader is not None
@@ -1464,7 +1509,7 @@ def render_etf_page(code: str) -> bytes:
         </div>
         <div class="summary-grid">
           {metric("深研分", leader["deep_score"] if leader is not None else None)}
-          {metric("收盘", market.get("close"))}
+          {metric("当前价格", current_price)}
           {metric("PE TTM", market.get("pe_ttm"))}
           {metric("PB", market.get("pb"))}
           {metric("估值框架", model_info.get("valuation_model_label"))}
@@ -1517,7 +1562,7 @@ def render_etf_page(code: str) -> bytes:
         <h2>研究历史</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>日期</th><th>类型</th><th>状态</th><th>估值方法</th><th>低位 / 中枢 / 高位</th><th>底仓资格</th></tr></thead>
+            <thead><tr><th>日期</th><th>类型</th><th>状态</th><th>估值方法</th><th>参考价格低 / 中枢 / 高</th><th>底仓资格</th></tr></thead>
             <tbody>{history_rows}</tbody>
           </table>
         </div>

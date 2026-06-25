@@ -50,10 +50,9 @@ def dataframe_records(frame: Any) -> list[dict[str, Any]]:
     return records
 
 
-def fetch_tushare_daily(ts: Any, code: str, start_date: str, end_date: str, adj: str) -> list[dict[str, Any]]:
-    frame = ts.pro_bar(
+def fetch_tushare_daily(pro: Any, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    frame = pro.fund_daily(
         ts_code=code,
-        adj=None if adj == "none" else adj,
         start_date=compact_date(start_date),
         end_date=compact_date(end_date),
     )
@@ -85,7 +84,7 @@ def main() -> int:
     parser.add_argument("--days", type=int, default=360, help="Calendar-day lookback when --start-date is omitted.")
     parser.add_argument("--start-date", help="Inclusive start date, YYYY-MM-DD.")
     parser.add_argument("--end-date", default=datetime.now().date().isoformat(), help="Inclusive end date, YYYY-MM-DD.")
-    parser.add_argument("--adj", choices=["qfq", "hfq", "none"], default="qfq", help="Tushare adjustment mode.")
+    parser.add_argument("--adj", choices=["none"], default="none", help="ETF daily price cache uses Tushare fund_daily.")
     args = parser.parse_args()
 
     codes: list[tuple[str, str]] = []
@@ -112,18 +111,19 @@ def main() -> int:
         return 2
 
     ts.set_token(token)
+    pro = ts.pro_api()
     start_date = args.start_date or date_days_ago(args.days)
 
     init_db(DB_PATH)
     with connect(DB_PATH) as conn:
         for code, name in codes:
-            records = fetch_tushare_daily(ts, code, start_date, args.end_date, args.adj)
+            records = fetch_tushare_daily(pro, code, start_date, args.end_date)
             written = upsert_daily_prices(
                 conn,
                 code=code,
                 rows=records,
-                source="Tushare pro_bar",
-                adj=args.adj,
+                source="Tushare fund_daily",
+                adj="none",
             )
             print(f"{code} {name} price_rows={written}")
         conn.commit()

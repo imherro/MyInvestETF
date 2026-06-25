@@ -640,6 +640,12 @@ tr:last-child td {
   font-size: 13px;
 }
 
+.chart-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .valuation-legend span {
   display: inline-flex;
   align-items: center;

@@ -30,6 +30,7 @@ from myinvestetf.leader_index import (
 from myinvestetf.web import (
     decision_matrix_summary,
     leader_to_summary,
+    render_valuation_chart,
     render_queue_rows,
     render_layout,
     valuation_signal_summary,
@@ -476,7 +477,7 @@ class ETFContractTests(unittest.TestCase):
             "valuation_method": "NAV+index-valuation",
             "heavy_position_view": "工具仓可用",
             "raw_json": (
-                '{"valuation":{"undervalued_score":65,"liquidity_score":80,'
+                '{"valuation":{"current_price":4.05,"undervalued_score":65,"liquidity_score":80,'
                 '"tracking_score":90,"portfolio_role_score":70,"risk_adjusted_score":72},'
                 '"conclusion":{"summary":"确定性规则评分"}}'
             ),
@@ -484,6 +485,42 @@ class ETFContractTests(unittest.TestCase):
         signal = valuation_signal_summary(row)
         self.assertEqual(signal["bucket"], "medium")
         self.assertEqual(signal["liquidity_score"], 80.0)
+        self.assertEqual(signal["current_price"], 4.05)
+
+    def test_valuation_chart_uses_price_language_and_explains_missing_kline(self) -> None:
+        runs = [
+            {
+                "valuation_low": 3.7,
+                "valuation_mid": 4.0,
+                "valuation_high": 4.3,
+                "valuation_method": "NAV+index-valuation",
+                "heavy_position_view": "工具仓可用",
+                "research_date": "2026-06-24",
+            }
+        ]
+        html = render_valuation_chart(runs, [])
+        self.assertIn("ETF参考价格区间历史", html)
+        self.assertIn("行情K线待入库", html)
+        self.assertNotIn("ETF参考价值区间历史", html)
+
+    def test_valuation_chart_renders_kline_when_price_cache_exists(self) -> None:
+        runs = [
+            {
+                "valuation_low": 3.7,
+                "valuation_mid": 4.0,
+                "valuation_high": 4.3,
+                "valuation_method": "NAV+index-valuation",
+                "heavy_position_view": "工具仓可用",
+                "research_date": "2026-06-24",
+            }
+        ]
+        prices = [
+            {"trade_date": "2026-06-23", "open_price": 4.0, "high_price": 4.1, "low_price": 3.9, "close_price": 4.05},
+            {"trade_date": "2026-06-24", "open_price": 4.05, "high_price": 4.2, "low_price": 4.0, "close_price": 4.1},
+        ]
+        html = render_valuation_chart(runs, prices)
+        self.assertIn("近期价格K线", html)
+        self.assertIn("K线叠加ETF参考价格区间图", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})
