@@ -2,7 +2,7 @@
 
 ## 任务拆分
 
-ETF 深研必须一次只研究一只 ETF。自动化只分为两类：
+ETF 深研必须按队列逐只研究。单条研究任务一次只研究一只 ETF；自动化启动一次后，应连续消化所有可领取队列任务，任务之间间隔 10 分钟。自动化只分为两类：
 
 1. `MyInvestETF ETF 输入读取入队`
 2. `MyInvestETF ETF 完整深研队列消化`
@@ -26,14 +26,17 @@ ETF 深研必须一次只研究一只 ETF。自动化只分为两类：
 
 ## ETF 完整深研队列消化
 
-用途：每小时运行一次，持续消化本地待研究队列。每次运行只处理一条任务。
+用途：启动一次后持续消化本地待研究队列，直到没有可领取任务。
 
 规则：
 
 - 只从本地 `research_queue` 领取 pending 任务。
 - 领取任务时把状态标记为 `RUNNING`。
 - `task_queue` 是唯一状态源。
-- 每次只研究一只 ETF、一个 `research` 任务类型。
+- 单条任务只研究一只 ETF、一个 `research` 任务类型。
+- 每条任务完成、失败或明确 `BLOCKED` 后，等待 10 分钟再领取下一条。
+- 必须循环领取并处理，直到 `python scripts/generate_single_etf_prompt.py --next --claim` 返回没有可领取任务。
+- 如果某条任务无法完成，必须进入 `FAILED` 或 `BLOCKED` 并记录原因，不得让 `RUNNING` 永久卡住，也不得因此停止后续队列消化。
 - `research` 最终报告必须由 `core/report.build_etf_report(...)` 或 `scripts/build_research_report.py` 生成。
 - 报告生成时应记录 `feature`、`valuation`、`signal`、`report` 四个 trace stage。
 - 领取脚本输出的 `run_id`、`task_id`、`source_type` 和 `depends_on_task_type` 必须保留在自动化汇报中。
@@ -51,9 +54,10 @@ ETF 深研必须一次只研究一只 ETF。自动化只分为两类：
 ## 完整深研流程
 
 1. 运行 `python scripts/ingest_index.py` 更新上游 ETF 队列。
-2. 领取下一条 `research` 队列任务。
-3. 构建 `assembly_input`，包括 `product_profile`、`holdings_inputs`、`valuation_inputs`、`model_specific_inputs`、`liquidity_inputs`、`tracking_inputs`、`risk_signals`、`evidence`、`assumptions`、`data_gaps`。
+2. 循环领取下一条 `research` 队列任务。
+3. 对当前任务构建 `assembly_input`，包括 `product_profile`、`holdings_inputs`、`valuation_inputs`、`model_specific_inputs`、`liquidity_inputs`、`tracking_inputs`、`risk_signals`、`evidence`、`assumptions`、`data_gaps`。
 4. 运行 `python scripts/build_research_report.py --audit-db data/local/myinvestetf.sqlite <assembly_input>`。
 5. 运行 `python scripts/import_research_run.py <report_json>` 入库。
-6. 运行 `python scripts/update_etf_prices.py --all-system` 刷新 `fund_daily` 日行情缓存，用于 ETF 详情页 2024-09-24 以来收盘价折线图。
-7. 验证 `/api/index`、`/api/latest` 和 ETF 详情页可用。
+6. 当前任务进入 `DONE`、`FAILED` 或 `BLOCKED` 后，如果仍有可领取任务，等待 10 分钟再回到第 2 步。
+7. 队列清空后运行 `python scripts/update_etf_prices.py --all-system` 刷新 `fund_daily` 日行情缓存，用于 ETF 详情页 2024-09-24 以来收盘价折线图。
+8. 验证 `/api/index`、`/api/latest` 和 ETF 详情页可用。

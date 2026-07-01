@@ -4,7 +4,7 @@
 
 ETF 深研队列的提示词必须满足三个目标：
 
-- Codex 每次只处理一只 ETF、一个 `research` 队列任务。
+- Codex 单条任务只处理一只 ETF、一个 `research` 队列任务；自动化启动一次后可以连续处理多条队列任务。
 - 任务提示词可以直接执行，不依赖聊天上下文补充关键信息。
 - 研究输出只进入 `ETFResearchReport` 和本地数据库，不扩展成交易指令、现金金额或份额数量。
 
@@ -85,17 +85,19 @@ LLM 只能负责收集、清洗、归一化输入和解释脚本输出，不能�
 
 ## 自动化执行规则
 
-Codex 自动化每小时运行一次：
+Codex 自动化启动一次后必须循环消化队列：
 
 1. 运行 `python scripts/ingest_index.py` 刷新当前可跟踪 ETF 队列。
 2. 运行 `python scripts/generate_single_etf_prompt.py --next --claim` 领取一条 `research` 任务。
-3. 如果没有可领取任务，验证 `http://127.0.0.1:8017/api/index` 和 `/api/latest`，然后结束。
+3. 如果没有可领取任务，验证 `http://127.0.0.1:8017/api/index` 和 `/api/latest`，汇报本次累计处理结果，然后结束。
 4. 如果领取到任务，按提示词产出 `assembly_input`，再通过确定性脚本生成并导入报告。
 5. 成功导入后确认 `task_queue` 状态为 `DONE`；失败时进入 `FAILED` 或 `BLOCKED`，不要让 `RUNNING` 永久卡住。
+6. 每完成一条任务后，如果仍有可领取任务，等待 10 分钟，再回到第 2 步。
+7. 必须持续循环，直到 `generate_single_etf_prompt.py --next --claim` 返回没有可领取任务。
 
 自动化不得：
 
-- 一次处理多只 ETF。
+- 把多只 ETF 合并为一条研究任务或一个研究结论。
 - 研究同类低成交额 ETF 替代品，除非用户手动点名。
 - 重新引入旧的两阶段研究任务。
 - 把上游可跟踪 ETF 当成买入清单。
