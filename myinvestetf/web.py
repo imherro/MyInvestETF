@@ -3050,6 +3050,7 @@ def render_etf_page(code: str) -> bytes:
     )
     report_date = report["basis_date"] if report else ""
     queue_status_section = render_etf_queue_status(etf_queue)
+    ask_widget_section = render_ask_widget(code, common_ask_answers)
     signal_matrix_section = render_signal_matrix(
         upstream_signal,
         valuation_signal,
@@ -3089,7 +3090,6 @@ def render_etf_page(code: str) -> bytes:
           </div>
         </div>
         {render_current_decision_summary(decision_matrix, valuation_signal, adaptive_decision_signal, current_price)}
-        {render_ask_widget(code, common_ask_answers)}
         <div class="summary-grid">
           {metric("深研分", leader["deep_score"] if leader is not None else None)}
           {metric("当前价格", current_price)}
@@ -3106,7 +3106,6 @@ def render_etf_page(code: str) -> bytes:
       </div>
     </section>
     <section class="content">
-      {queue_status_section}
       {signal_matrix_section}
       {render_taxonomy_profile(taxonomy_profile)}
       {render_factor_exposure(factor_exposure)}
@@ -3152,6 +3151,8 @@ def render_etf_page(code: str) -> bytes:
         <h2>风险与证伪</h2>
         <ul class="risk-list">{risk_items or '<li>等待ETF深研入库。</li>'}</ul>
       </section>
+      {ask_widget_section}
+      {queue_status_section}
       <section class="section-block">
         <h2>研究历史</h2>
         <div class="table-wrap">
