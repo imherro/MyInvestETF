@@ -154,7 +154,19 @@ Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 
 - `conditions.drawdown_extreme`: 是否满足极端回撤。
 - `conditions.regime_stress`: Regime v2 是否处于压力状态。
 - `conditions.liquidity_stress`: 流动性或 flow 是否处于压力。
+- `conditions.volatility_stress`: 20 日波动是否进入压力状态。
+- `conditions.governance_allowed`: 研究健康度 gate 是否允许该解释层生效；`reject` 时为 false。
+- `evidence.current_drawdown`: 当前回撤。
+- `evidence.drawdown_percentile`: 当前回撤在历史回撤序列中的严重程度分位。
+- `evidence.extreme_proximity`: 当前回撤接近滚动最大回撤的程度。
+- `evidence.regime`: Regime v2 当前状态。
+- `evidence.volatility_20`: 20 日波动。
+- `evidence.liquidity_score`: 市场结构流动性分。
+- `evidence.flow_score`: ETF flow 因子分。
+- `evidence.governance_gate`: 研究健康度 gate。
 - `adjusted_interpretation.final_view`: `probabilistic_bottom_zone`、`normal` 或 `not_active`。
+
+`enabled=true` 只在 `drawdown_extreme`、`regime_stress`、`volatility_stress` 和 `governance_allowed` 同时满足时触发。`liquidity_stress` 是概率和解释输入，不是当前版本的硬触发门槛。
 
 该层是 `DecisionSignal` 的再解释层，不覆盖原始 `DecisionSignal.score`，不输出交易动作、现金金额或份额数量。
 

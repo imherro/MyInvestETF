@@ -235,10 +235,22 @@ http://127.0.0.1:8017
 - `contrarian_signal.conditions.drawdown_extreme`
 - `contrarian_signal.conditions.regime_stress`
 - `contrarian_signal.conditions.liquidity_stress`
+- `contrarian_signal.conditions.volatility_stress`
+- `contrarian_signal.conditions.governance_allowed`
+- `contrarian_signal.evidence.current_drawdown`
+- `contrarian_signal.evidence.drawdown_percentile`
+- `contrarian_signal.evidence.extreme_proximity`
+- `contrarian_signal.evidence.regime`
+- `contrarian_signal.evidence.volatility_20`
+- `contrarian_signal.evidence.liquidity_score`
+- `contrarian_signal.evidence.flow_score`
+- `contrarian_signal.evidence.governance_gate`
 - `contrarian_signal.adjusted_interpretation.risk_adjusted_score`
 - `contrarian_signal.adjusted_interpretation.original_decision_score`
 - `contrarian_signal.adjusted_interpretation.final_view`: `probabilistic_bottom_zone`、`normal` 或 `not_active`
 - `contrarian_signal.constraints.does_not_override_decision_score`: `true`
+
+`contrarian_signal.enabled=true` 的硬触发条件是 `drawdown_extreme && regime_stress && volatility_stress && governance_allowed`。`liquidity_stress` 参与恐慌释放和反转概率计算，但不是当前版本的硬门槛；页面仍会展示该条件，帮助解释资金流或流动性压力。
 
 该接口只读，不写库、不写队列、不重算研究报告、不覆盖原始 Decision Score、不输出交易动作、现金金额或份额数量。
 

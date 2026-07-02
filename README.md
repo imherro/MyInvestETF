@@ -27,7 +27,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；用于因子暴露、IC、DecisionSignal 组件评分和解释。
 - 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，并参与状态感知研究评分。
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
-- 策略层由 `core/strategy` 生成：Contrarian Mode 在极端回撤、压力状态和波动释放时输出 `ContrarianSignal`；Strategy Router 在 trend、contrarian、neutral 间做解释层编排，不覆盖原始评分。
+- 策略层由 `core/strategy` 生成：Contrarian Mode 根据极端回撤、压力状态、波动压力、流动性压力和系统健康 gate 输出 `ContrarianSignal`；Strategy Router 在 trend、contrarian、neutral 间做解释层编排，不覆盖原始评分。
 - 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
 - 研究治理由 `core/governance` 生成，输出数据完整性、因子有效性、regime 稳定性、报告质量和系统健康分，用来判断研究结果是否可信、是否应被 gate 阻断。
 - 自然语言决策解释由 `core/interpreter` 生成，把已有 `DecisionSignal + taxonomy + governance` 翻译成结构化解释；最终回答统一由 `AnswerPolicyEngine` 生成。该层只读，不输出买卖动作、现金金额或份额数量。
@@ -180,9 +180,13 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 
 - `drawdown_extreme`: 当前回撤接近历史滚动最大回撤、回撤分位较高，或回撤本身进入极端区。
 - `regime_stress`: Regime v2 处于 `risk_off` 或 `shock`。
+- `volatility_stress`: 20 日波动率进入压力区，当前硬阈值约为 2.8%。
 - `liquidity_stress`: 流动性或 flow 因子显示压力。
+- `governance_allowed`: 研究健康度 gate 不是 `reject`，否则禁止进入概率底部观察区。
 - `reversal_probability`: 由极端回撤、恐慌释放、趋势衰竭和治理可信度组合生成。
 - `final_view`: `probabilistic_bottom_zone`、`normal` 或 `not_active`。
+
+`enabled=true` 的硬触发条件是：`drawdown_extreme && regime_stress && volatility_stress && governance_allowed`。`liquidity_stress` 会进入恐慌释放和反转概率计算，也会在页面展示，但不是当前版本进入 Contrarian Mode 的硬门槛。
 
 该层只读，不修改 `DecisionSignal.score`，不输出交易动作、现金金额或份额数量。Web 详情页和 `GET /api/strategy/contrarian/{etf}` 会展示它的概率、触发条件和“不是趋势买点”的解释。
 
