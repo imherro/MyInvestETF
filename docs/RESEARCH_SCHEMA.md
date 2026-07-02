@@ -42,7 +42,7 @@
 - 顶层 `valuation_model_type` / `sleeve_key` 必须等于 `product_profile` 内部同名字段。
 - 如果显式提供 `run_id`，必须等于系统计算值。
 - `research` 必须写入完整参考价值区间，且 `low <= mid <= high`。
-- `market_context` 如存在，`etf_code` 必须等于顶层 `etf_code`；该字段只作为上下文，不改变当前评分。
+- `market_context` 如存在，`etf_code` 必须等于顶层 `etf_code`；该字段会进入只读 `DecisionSignal`，但不改写已入库研究报告。
 - `taxonomy_profile` 如存在，`legacy_valuation_model_type` 和 `legacy_sleeve_key` 必须等于顶层兼容字段。
 
 ## 任务状态机
@@ -94,7 +94,7 @@ BLOCKED -> FAILED
 
 系统会从 `price_series` 计算 `market_context.drawdown`，并优先用 `index_price_series` 计算 `market_context.regime`。如果没有行情序列，报告仍可生成，页面和 API 会尝试用本地 `etf_daily_prices` 缓存补充。
 
-系统会从 ETF 元数据、跟踪指数、资产类别、行业/主题暴露、波动和流动性线索生成 `taxonomy_profile`。所有 ETF 评分必须绑定 taxonomy，但 taxonomy 不直接改写当前 signal。
+系统会从 ETF 元数据、跟踪指数、资产类别、行业/主题暴露、波动和流动性线索生成 `taxonomy_profile`。所有 ETF 评分必须绑定 taxonomy；taxonomy 会影响 `DecisionSignal` 的权重和解释，但不替代四类兼容估值模型。
 
 ## Factor Output
 
@@ -125,7 +125,7 @@ BLOCKED -> FAILED
 - `dispersion_score`
 - `contributions`
 
-Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 的输入权重，并输出 `confirmation_level` 与解释文本。当前版本不改变现有 ETF 评分。
+Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 的输入权重，并输出 `confirmation_level` 与解释文本。该结果会进入 `DecisionSignal` 的状态、动态权重和解释。
 
 ## Decision Signal Output
 
@@ -141,7 +141,7 @@ Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 
 - `confidence`
 - `constraints`: 必须声明只读、研究用途、不含交易动作、不含现金金额、不含份额数量
 
-该层只用于解释和研究排序，不改变 `ETFValuationSignal`、参考价格区间或入库报告。
+该层只用于解释和研究排序，不改写参考价格区间或入库报告。收益防御/自由现金流 ETF 的深回撤会形成 `drawdown_opportunity_score`，并可提升运行时估值组件分。
 
 ## Replay Report Output
 

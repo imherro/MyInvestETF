@@ -177,7 +177,7 @@ http://127.0.0.1:8017
 - `constraints.contains_cash_amounts`: `false`
 - `constraints.contains_share_counts`: `false`
 
-该接口只读，不改变 `ETFValuationSignal`、研究报告、队列或数据库。
+该接口只读，不写入研究报告、队列或数据库。接口会按当前 taxonomy、Regime v2、因子和运行时估值上下文生成 `DecisionSignal`，但不触发重算、同步或交易动作。
 
 ## `/api/score/decompose/{etf}`
 
@@ -378,7 +378,7 @@ http://127.0.0.1:8017
 - `items[].regime_v2.evidence.breadth_contribution`
 - `items[].regime_v2.evidence.liquidity_contribution`
 
-该接口只读，不影响 `/api/factors`、taxonomy、report 或现有评分。
+该接口只读，不写入 `/api/factors`、taxonomy、report 或数据库；Regime v2 会作为 `/api/score/*` 和 ETF 页面 DecisionSignal 的输入。
 
 ## 约束
 

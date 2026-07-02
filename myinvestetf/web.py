@@ -574,6 +574,64 @@ def valuation_signal_summary(row: object | None) -> dict[str, object]:
     }
 
 
+def _bounded_score(value: float) -> float:
+    return max(0.0, min(100.0, value))
+
+
+def _valuation_bucketed(signal: dict[str, object]) -> dict[str, object]:
+    enriched = dict(signal)
+    undervalued_score = _num(enriched.get("undervalued_score"))
+    if undervalued_score is None:
+        bucket = "unknown"
+    elif undervalued_score >= 70.0:
+        bucket = "high"
+    elif undervalued_score >= 40.0:
+        bucket = "medium"
+    else:
+        bucket = "low"
+    enriched["bucket"] = bucket
+    enriched["label"] = _bucket_label(bucket, kind="valuation")
+    return enriched
+
+
+def valuation_signal_with_drawdown_context(
+    valuation_signal: dict[str, object],
+    taxonomy_profile: dict[str, object] | None,
+    market_regime_v2: dict[str, object] | None,
+) -> dict[str, object]:
+    model_type = str(valuation_signal.get("valuation_model_type") or "")
+    taxonomy_type = str((taxonomy_profile or {}).get("etf_type") or "")
+    if model_type != "factor_defensive" and taxonomy_type != "factor_strategy":
+        return valuation_signal
+    evidence = market_regime_v2.get("evidence") if isinstance(market_regime_v2, dict) else {}
+    if not isinstance(evidence, dict):
+        return valuation_signal
+    current_drawdown = _num(evidence.get("current_drawdown"))
+    if current_drawdown is None or current_drawdown < 0.12:
+        return valuation_signal
+    valuation_percentile = _num(valuation_signal.get("valuation_percentile"))
+    drawdown_score = _bounded_score(55.0 + max(0.0, current_drawdown - 0.10) / 0.15 * 40.0)
+    if valuation_percentile is None:
+        opportunity_score = drawdown_score
+    else:
+        percentile_score = _bounded_score(50.0 + max(0.0, 35.0 - valuation_percentile) / 35.0 * 45.0)
+        opportunity_score = max(drawdown_score, percentile_score * 0.55 + drawdown_score * 0.45)
+    enriched = dict(valuation_signal)
+    current_undervalued = _num(enriched.get("undervalued_score")) or 0.0
+    enriched["drawdown_opportunity_score"] = round(opportunity_score, 6)
+    enriched["drawdown_opportunity_label"] = (
+        f"当前回撤 {fmt_ratio_percent(current_drawdown)}，估值分位 {fmt_percentile(valuation_percentile)}，"
+        "按收益防御ETF识别为深回撤估值机会"
+    )
+    if opportunity_score > current_undervalued:
+        enriched["undervalued_score"] = round(opportunity_score, 6)
+        enriched["explanation"] = (
+            f"{enriched.get('explanation') or ''}；深回撤机会 {fmt_num(opportunity_score)} "
+            f"来自当前回撤 {fmt_ratio_percent(current_drawdown)} 和估值分位 {fmt_percentile(valuation_percentile)}"
+        ).strip("；")
+    return _valuation_bucketed(enriched)
+
+
 def decision_matrix_summary(
     upstream_signal: dict[str, object],
     valuation_signal: dict[str, object],
@@ -1317,7 +1375,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
                 _api_endpoint("GET", "/api/market/structure", "返回市场结构层，包含宽度、流动性和离散度。", [], "market_structure JSON。", True),
                 _api_endpoint("GET", "/api/market/breadth", "返回市场宽度摘要。", [], "breadth JSON。", True),
                 _api_endpoint("GET", "/api/market/liquidity", "返回流动性结构摘要。", [], "liquidity JSON。", True),
-                _api_endpoint("GET", "/api/market/regime-v2", "返回结构驱动的 Regime v2，不改变现有评分。", [], "market_structure 与 per ETF regime_v2。", True),
+                _api_endpoint("GET", "/api/market/regime-v2", "返回结构驱动的 Regime v2，用于状态感知评分。", [], "market_structure 与 per ETF regime_v2。", True),
             ],
         },
         {
@@ -1806,7 +1864,7 @@ def render_market_context(context: dict[str, object] | None) -> str:
     data_points = drawdown.get("data_points") if isinstance(drawdown, dict) else None
     as_of_date = drawdown.get("as_of_date") if isinstance(drawdown, dict) else None
     note = (
-        "市场状态和回撤只作为研究上下文展示，本版本不改变ETF现有类型化估值评分。"
+        "市场状态和回撤会进入状态感知研究评分；收益防御ETF的深回撤会额外形成机会分。"
         if data_points
         else "本地尚未缓存足够行情，等待 update_etf_prices 后生成市场状态和回撤上下文。"
     )
@@ -1830,7 +1888,7 @@ def render_market_regime_v2(regime: dict[str, object] | None, structure: dict[st
     nested = regime.get("structure") if isinstance(regime.get("structure"), dict) else {}
     return f"""<section class="section-block">
         <h2>结构化市场状态</h2>
-        <p class="muted">Regime v2 = 40%价格趋势 + 30%宽度 + 20%流动性 + 10%波动；只升级市场输入质量，不改变现有评分。</p>
+        <p class="muted">Regime v2 = 40%价格趋势 + 30%宽度 + 20%流动性 + 10%波动；用于状态、动态权重和最终研究评分解释。</p>
         <div class="signal-grid">
           {signal_item("Regime v2", REGIME_LABELS.get(str(regime.get("regime") or ""), regime.get("regime")))}
           {signal_item("确认强度", regime.get("confirmation_level"))}
@@ -1857,7 +1915,7 @@ def render_taxonomy_profile(profile: dict[str, object] | None) -> str:
     )
     return f"""<section class="section-block">
         <h2>ETF分类画像</h2>
-        <p class="muted">taxonomy 只增强产品认知和路由，本版本不改变既有类型化估值评分。</p>
+        <p class="muted">taxonomy 决定产品类型、研究路由和 DecisionSignal 权重；自由现金流、红利低波等收益防御 ETF 会单独识别。</p>
         <div class="signal-grid">
           {signal_item("ETF类型", TAXONOMY_LABELS.get(etf_type, etf_type or "待分类"))}
           {signal_item("子类", profile.get("subtype"))}
@@ -1928,7 +1986,7 @@ def render_factor_exposure(exposure: dict[str, object] | None) -> str:
     )
     return f"""<section class="section-block">
         <h2>因子暴露</h2>
-        <p class="muted">因子采用 point-in-time lag 1，对齐到 {esc(exposure.get('as_of_date') or '待入库')}；当前仅展示标准化暴露，不改变现有评分。</p>
+        <p class="muted">因子采用 point-in-time lag 1，对齐到 {esc(exposure.get('as_of_date') or '待入库')}；用于暴露解释、IC验证和 DecisionSignal 组件评分。</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>因子</th><th>类型</th><th>原始值</th><th>Z分</th><th>分位</th><th>as_of_date</th></tr></thead>
@@ -2437,7 +2495,10 @@ def render_signal_matrix(
             + signal_item("拥挤风险", fmt_num(valuation_signal.get("crowding_risk_score")))
         )
     elif model_type == "factor_defensive":
-        model_specific_items = signal_item("防御因子溢价", fmt_num(valuation_signal.get("factor_premium_score")))
+        model_specific_items = (
+            signal_item("防御因子溢价", fmt_num(valuation_signal.get("factor_premium_score")))
+            + signal_item("深回撤机会", fmt_num(valuation_signal.get("drawdown_opportunity_score")), valuation_signal.get("drawdown_opportunity_label"))
+        )
     elif model_type == "cash_like":
         model_specific_items = signal_item("现金替代安全", fmt_num(valuation_signal.get("cash_like_safety_score")))
     else:
@@ -2601,10 +2662,11 @@ def render_etf_page(code: str) -> bytes:
         valuation_signal.update(model_info)
     taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest if latest else None, fallback_name=etf_name)
     etf_type = str(taxonomy_profile.get("etf_type") or "")
-    decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
     price_cache_for_display = chart_prices or context_prices
     market_context = market_context_from_prices(code, context_prices)
     market_regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(code, context_prices, market_structure_obj))
+    valuation_signal = valuation_signal_with_drawdown_context(valuation_signal, taxonomy_profile, market_regime_v2)
+    decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
     factor_exposure = factor_exposure_from_prices(code, context_prices, taxonomy_profile)
     adaptive_decision_signal = decision_signal_from_inputs(
         code=code,
@@ -2816,9 +2878,15 @@ def api_latest() -> bytes:
             latest = latest_research_run(runs)
             leader_summary = leader_to_summary(leader)
             taxonomy_profile = taxonomy_profile_from_sources(code=str(leader["code"]), leader=leader, latest=runs[0] if runs else None)
+            latest_valuation_signal = latest["valuation_signal"] if latest else valuation_signal_summary(None)
+            latest_valuation_signal = valuation_signal_with_drawdown_context(
+                latest_valuation_signal,
+                taxonomy_profile,
+                {"evidence": {"current_drawdown": (market_context.get("drawdown") or {}).get("current_drawdown") if isinstance(market_context.get("drawdown"), dict) else None}},
+            )
             decision_matrix = decision_matrix_summary(
                 leader_summary["upstream_signal"],
-                latest["valuation_signal"] if latest else valuation_signal_summary(None),
+                latest_valuation_signal,
             )
             etfs.append(
                 {
@@ -2864,12 +2932,17 @@ def api_etf(code: str) -> bytes:
         row["source_label"] = queue_source_label(row.get("source_type"))
     leader_summary = leader_to_summary(leader) if leader else None
     latest = next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)
-    decision_matrix = decision_matrix_summary(
-        leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
-        valuation_signal_summary(latest) if latest else valuation_signal_summary(None),
-    )
     taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest)
     market_context = market_context_from_prices(code, context_prices)
+    current_valuation_signal = valuation_signal_with_drawdown_context(
+        valuation_signal_summary(latest) if latest else valuation_signal_summary(None),
+        taxonomy_profile,
+        {"evidence": {"current_drawdown": (market_context.get("drawdown") or {}).get("current_drawdown") if isinstance(market_context.get("drawdown"), dict) else None}},
+    )
+    decision_matrix = decision_matrix_summary(
+        leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
+        current_valuation_signal,
+    )
     return json.dumps(
         {
             "leader": dict(leader) if leader else None,
@@ -2878,6 +2951,7 @@ def api_etf(code: str) -> bytes:
             "research_runs": runs,
             "taxonomy_profile": taxonomy_profile,
             "market_context": market_context,
+            "valuation_signal": current_valuation_signal,
             "decision_matrix": decision_matrix,
             "queue": queue,
             "trackable_history": trackable,
@@ -3053,7 +3127,7 @@ def api_market_regime_v2() -> bytes:
             "constraints": {
                 "read_only": True,
                 "research_only": True,
-                "does_not_change_scoring": True,
+                "feeds_decision_signal": True,
                 "contains_trade_orders": False,
                 "contains_cash_amounts": False,
                 "contains_share_counts": False,
@@ -3085,6 +3159,7 @@ def decision_signal_payload_for_etf(code: str) -> dict[str, object]:
         valuation_signal.update(leader_model_info(leader))
     factor_exposure = factor_exposure_from_prices(code, prices, taxonomy_profile)
     market_regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(code, prices, structure_obj))
+    valuation_signal = valuation_signal_with_drawdown_context(valuation_signal, taxonomy_profile, market_regime_v2)
     decision_signal = decision_signal_from_inputs(
         code=code,
         factor_exposure=factor_exposure,

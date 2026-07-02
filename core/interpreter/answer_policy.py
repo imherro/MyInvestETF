@@ -125,6 +125,8 @@ class AnswerPolicyEngine:
         intent_map = _intent_dict(intent)
         regime_state = str(state.get("regime") or regime_map.get("regime") or "unknown")
         score = _safe_float(signal.get("score"))
+        inputs = _nested(signal, "inputs")
+        drawdown_opportunity = _safe_float(inputs.get("drawdown_opportunity_score"))
         signal_confidence = _safe_float(signal.get("confidence"), 0.0) or 0.0
         intent_confidence = _safe_float(intent_map.get("confidence"), 0.0) or 0.0
         warnings = _health_warnings(governance_map)
@@ -139,6 +141,8 @@ class AnswerPolicyEngine:
             f"市场状态为 {regime_state}，Decision Score 为 {score_text}。",
             f"ETF taxonomy 为 {taxonomy_type}，最终回答由统一 AnswerPolicyEngine 生成。",
         ]
+        if drawdown_opportunity is not None:
+            reasoning.append(f"深回撤机会分为 {drawdown_opportunity:.2f}，已纳入估值组件。")
         risk_notes = warnings[:5]
         if regime_state == "shock":
             risk_notes.insert(0, "regime: shock")

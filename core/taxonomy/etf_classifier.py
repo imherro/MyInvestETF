@@ -107,6 +107,11 @@ class ETFClassifier:
                 legacy_sleeve_key=sleeve_for_valuation_model(legacy_model),
             )
 
+        if _contains(text, "自由现金流", "现金流", "红利", "低波", "质量", "高股息", "股息"):
+            reasons.append("keyword:factor or defensive strategy")
+            subtype = "free_cash_flow" if _contains(text, "自由现金流", "现金流") else "dividend_low_vol"
+            return result("factor_strategy", subtype, 0.88)
+
         if _contains(text, "短融", "日利", "货币", "现金", "添利", "快线", "保证金", "逆回购"):
             reasons.append("keyword:cash-like instrument")
             return result("cash_equivalent", "cash_like", 0.90)
@@ -118,11 +123,6 @@ class ETFClassifier:
         if _contains(text, "债", "国债", "政金债", "信用债", "可转债", "公司债"):
             reasons.append("keyword:bond exposure")
             return result("bond_etf", "bond_duration_based", 0.84)
-
-        if _contains(text, "自由现金流", "现金流", "红利", "低波", "质量", "高股息", "股息"):
-            reasons.append("keyword:factor or defensive strategy")
-            subtype = "free_cash_flow" if _contains(text, "自由现金流", "现金流") else "dividend_low_vol"
-            return result("factor_strategy", subtype, 0.88)
 
         if _contains(text, "创业板", "创业50", "科创50", "科创板50", "科创100", "科创板100", "中证1000", "成长宽基"):
             reasons.append("keyword:growth broad index")

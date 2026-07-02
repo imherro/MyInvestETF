@@ -22,10 +22,10 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 队列任务使用 `core/task/state.py` 的状态机：`PENDING -> RUNNING -> DONE/FAILED/BLOCKED`。
 - `task_queue` 是唯一状态源；`research_queue` 只作为 prompt/projection/UI 表。
 - 参考价值区间和 signal 由 `core/valuation` 的确定性评分引擎生成，LLM 只负责构建输入和解释，不负责最终计算。
-- 市场状态和回撤由 `core/market`、`core/risk` 旁路生成，只作为研究上下文展示；当前版本不改变既有 ETF 类型化评分。
-- ETF taxonomy 由 `core/taxonomy` 旁路生成，只增强产品分类、队列路由和 API profile；当前版本不改变既有 signal。
-- 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；当前版本只展示因子暴露和 IC，不改最终评分。
-- 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，但仍不改最终评分。
+- 市场状态和回撤由 `core/market`、`core/risk` 生成，既用于页面解释，也进入状态感知研究评分；收益防御/自由现金流 ETF 出现深回撤时会生成 `drawdown_opportunity_score`。
+- ETF taxonomy 由 `core/taxonomy` 生成，增强产品分类、队列路由、API profile 和状态感知评分权重；不替代四类估值模型。
+- 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；用于因子暴露、IC、DecisionSignal 组件评分和解释。
+- 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，并参与状态感知研究评分。
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
 - 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
 - 研究治理由 `core/governance` 生成，输出数据完整性、因子有效性、regime 稳定性、报告质量和系统健康分，用来判断研究结果是否可信、是否应被 gate 阻断。
@@ -114,7 +114,7 @@ core/interpreter
 
 字段包括 `etf_type`、`subtype`、`lifecycle_stage`、`classification_confidence`、`classification_reasons`、`legacy_valuation_model_type` 和 `legacy_sleeve_key`。其中 `legacy_*` 用来保证新 taxonomy 与旧评分入口兼容。
 
-主题 ETF 的 `lifecycle_stage` 可为 `early`、`expansion`、`crowded`、`distribution`、`collapse`。当前生命周期只做分类说明，不直接改变估值评分。
+主题 ETF 的 `lifecycle_stage` 可为 `early`、`expansion`、`crowded`、`distribution`、`collapse`。生命周期用于分类说明、研究路由和 DecisionSignal 权重解释。
 
 ## 市场状态与回撤
 
@@ -128,7 +128,7 @@ core/interpreter
 - `drawdown.recovery_speed`: 从本轮低点到最新收盘价的日均修复速度。
 - `drawdown.duration_days`: 从本轮高点以来的交易日数。
 
-该层用于解释“当前是追涨、轮动、风险收缩还是冲击下跌”，并为后续状态机评分和回测提供上下文。它不直接给出买卖建议，也不在本版本改变 `ETFValuationSignal` 分数。
+该层用于解释“当前是追涨、轮动、风险收缩还是冲击下跌”，并为状态机评分和回测提供输入。它不直接给出买卖建议，但会影响 `DecisionSignal`；对自由现金流、红利低波等收益防御 ETF，深回撤会提升 `drawdown_opportunity_score`，再进入估值组件。
 
 ## 市场结构与 Regime v2
 
@@ -155,7 +155,7 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 - IC Analysis：计算因子相对 5/20/60 日 forward return 的 IC 摘要。
 - Factor Registry：按 taxonomy 选择可用因子集合。
 
-当前内置因子包括 `price_momentum_20`、`price_momentum_60`、`volatility_20`、`drawdown_current`、`liquidity_trend_20`。这些因子只用于研究暴露、归因和 IC 验证，不直接改写 `ETFValuationSignal`。
+当前内置因子包括 `price_momentum_20`、`price_momentum_60`、`volatility_20`、`drawdown_current`、`liquidity_trend_20`。这些因子用于研究暴露、归因、IC 验证和 `DecisionSignal` 组件评分；不会生成交易动作，也不会输出金额或份额数量。
 
 ## 状态感知研究评分
 

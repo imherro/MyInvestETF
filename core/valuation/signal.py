@@ -55,6 +55,7 @@ def build_etf_signal(
         + features.quality_score * 0.25
         - features.style_opportunity_cost * 0.20
     )
+    factor_value_opportunity_score = _score(factor_premium_score * 0.55 + broad_undervalued * 0.45)
     cash_like_safety_score = _score(
         features.yield_stability * 0.45
         + liquidity_score * 0.35
@@ -76,10 +77,10 @@ def build_etf_signal(
             - crowding_risk_score * 0.20
         )
     elif model_type == "factor_defensive":
-        undervalued_score = factor_premium_score
-        portfolio_role_score = _score(base_role_score + factor_premium_score * 0.30 + tracking_score * 0.15 - concentration_penalty)
+        undervalued_score = factor_value_opportunity_score
+        portfolio_role_score = _score(base_role_score + factor_value_opportunity_score * 0.25 + tracking_score * 0.15 - concentration_penalty)
         risk_adjusted_score = _score(
-            factor_premium_score * 0.40
+            factor_value_opportunity_score * 0.35
             + liquidity_score * 0.15
             + tracking_score * 0.20
             + portfolio_role_score * 0.20

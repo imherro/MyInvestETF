@@ -28,6 +28,13 @@ class ETFTaxonomyTests(unittest.TestCase):
         self.assertEqual(profile.subtype, "dividend_low_vol")
         self.assertEqual(profile.legacy_valuation_model_type, "factor_defensive")
 
+    def test_free_cash_flow_is_factor_strategy_not_cash_equivalent(self) -> None:
+        profile = classify_etf({"code": "159399.SZ", "name": "国泰富时中国A股自由现金流聚焦ETF"})
+
+        self.assertEqual(profile.etf_type, "factor_strategy")
+        self.assertEqual(profile.subtype, "free_cash_flow")
+        self.assertEqual(profile.legacy_valuation_model_type, "factor_defensive")
+
     def test_classifies_cash_equivalent_before_bond(self) -> None:
         profile = classify_etf({"code": "511360.SH", "name": "短融ETF", "tracking_index": "短融债指数"})
 

@@ -166,6 +166,7 @@ def _valuation_component_score(valuation_signal: Mapping[str, Any], taxonomy_typ
     elif model_type == "factor_defensive" or taxonomy_type == "factor_strategy":
         candidates.extend(
             [
+                ("drawdown_opportunity_score", valuation_signal.get("drawdown_opportunity_score")),
                 ("factor_premium_score", valuation_signal.get("factor_premium_score")),
                 ("undervalued_score", valuation_signal.get("undervalued_score")),
             ]
@@ -191,6 +192,28 @@ def _valuation_component_score(valuation_signal: Mapping[str, Any], taxonomy_typ
     return 0.50, "default_neutral_valuation"
 
 
+def _drawdown_opportunity_score(
+    *,
+    regime: Mapping[str, Any],
+    taxonomy_type: str | None,
+    valuation_signal: Mapping[str, Any],
+) -> float | None:
+    if taxonomy_type != "factor_strategy" and str(valuation_signal.get("valuation_model_type") or "") != "factor_defensive":
+        return None
+    evidence = _mapping(regime.get("evidence"))
+    current_drawdown = _safe_float(evidence.get("current_drawdown"))
+    valuation_percentile = _safe_float(valuation_signal.get("valuation_percentile"))
+    if current_drawdown is None or current_drawdown < 0.12:
+        return None
+    drawdown_score = _clamp((current_drawdown - 0.10) / 0.15) * 40.0 + 55.0
+    percentile_score = None if valuation_percentile is None else _clamp((35.0 - valuation_percentile) / 35.0) * 45.0 + 50.0
+    if percentile_score is None:
+        opportunity = drawdown_score
+    else:
+        opportunity = max(drawdown_score, percentile_score * 0.55 + drawdown_score * 0.45)
+    return round(_clamp(opportunity / 100.0) * 100.0, 6)
+
+
 def _component_scores(
     *,
     factor_exposure: object | None,
@@ -207,6 +230,16 @@ def _component_scores(
     risk = _factor_component_score(rows, "risk")
     valuation_risk = _unit_from_score(valuation_signal.get("risk_adjusted_score"))
     valuation, valuation_source = _valuation_component_score(valuation_signal, taxonomy_type)
+    drawdown_opportunity = _drawdown_opportunity_score(
+        regime=regime,
+        taxonomy_type=taxonomy_type,
+        valuation_signal=valuation_signal,
+    )
+    if drawdown_opportunity is not None:
+        opportunity_unit = _clamp(drawdown_opportunity / 100.0)
+        if opportunity_unit > valuation:
+            valuation = opportunity_unit
+            valuation_source = "drawdown_opportunity_score"
 
     if momentum is None:
         momentum = trend_fallback if trend_fallback is not None else 0.50
@@ -235,6 +268,7 @@ def _component_scores(
             "risk": "valuation_signal.risk_adjusted_score" if not sources_for_type(rows, "risk") else "factor_exposure+valuation_signal",
             "valuation": valuation_source,
         },
+        "drawdown_opportunity_score": drawdown_opportunity,
     }
     return scores, sources
 

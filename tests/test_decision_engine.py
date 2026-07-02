@@ -28,6 +28,9 @@ def regime(value: str, trend: float = 0.65) -> dict[str, object]:
             "liquidity_score": 0.61,
             "dispersion_score": 0.58,
         },
+        "evidence": {
+            "current_drawdown": 0.05,
+        },
     }
 
 
@@ -100,6 +103,38 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertFalse(signal.constraints["contains_trade_orders"])
         self.assertFalse(signal.constraints["contains_cash_amounts"])
         self.assertFalse(signal.constraints["contains_share_counts"])
+
+    def test_factor_defensive_deep_drawdown_creates_opportunity_score(self) -> None:
+        signal = build_decision_signal(
+            etf_code="159399.SZ",
+            factor_exposure={
+                "factors": [
+                    {"factor_name": "price_momentum_60", "factor_type": "momentum", "normalized_value": 0.12},
+                    {"factor_name": "liquidity_trend_20", "factor_type": "flow", "normalized_value": 0.66},
+                    {"factor_name": "drawdown_current", "factor_type": "risk", "normalized_value": 1.0},
+                ]
+            },
+            market_regime={
+                "regime": "rotation",
+                "confidence": 0.7,
+                "structure": {"price_trend_score": 0.14},
+                "evidence": {"current_drawdown": 0.252033},
+            },
+            taxonomy_profile={"etf_type": "factor_strategy", "classification_confidence": 0.9},
+            valuation_signal={
+                "valuation_model_type": "factor_defensive",
+                "factor_premium_score": 57.0,
+                "undervalued_score": 57.0,
+                "valuation_percentile": 2.56,
+                "liquidity_score": 100.0,
+                "risk_adjusted_score": 66.0,
+            },
+        )
+
+        self.assertEqual(signal.inputs["fallbacks"]["valuation"], "drawdown_opportunity_score")
+        self.assertGreater(signal.inputs["drawdown_opportunity_score"], 90.0)
+        self.assertGreater(signal.component_scores["valuation"], 90.0)
+        self.assertGreaterEqual(signal.score, 60.0)
 
 
 if __name__ == "__main__":
