@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictStr, model_validator
 
 from core.task.state import compute_task_run_id
+from core.taxonomy import ETFType, ThemeLifecycleStage
 from core.valuation.classification import SleeveKey, ValuationModelType
 
 
@@ -135,6 +136,16 @@ class ETFMarketContext(StrictSchemaModel):
     drawdown: ETFDrawdownState
 
 
+class ETFTaxonomyProfile(StrictSchemaModel):
+    etf_type: ETFType
+    subtype: StrictStr
+    lifecycle_stage: ThemeLifecycleStage | None = None
+    classification_confidence: StrictFloat = Field(ge=0.0, le=1.0)
+    classification_reasons: list[StrictStr] = Field(default_factory=list)
+    legacy_valuation_model_type: ValuationModelType
+    legacy_sleeve_key: SleeveKey
+
+
 class ETFResearchReport(StrictSchemaModel):
     schema_version: Literal["etf_research_report.v1"] = "etf_research_report.v1"
     report_version: StrictStr | None = None
@@ -156,6 +167,7 @@ class ETFResearchReport(StrictSchemaModel):
     base_position_view: BasePositionView
     risk: ETFRisk
     conclusion: ETFConclusion
+    taxonomy_profile: ETFTaxonomyProfile | None = None
     market_context: ETFMarketContext | None = None
     evidence: list[EvidenceItem] = Field(min_length=1)
     assumptions: list[StrictStr] = Field(default_factory=list)
@@ -175,6 +187,11 @@ class ETFResearchReport(StrictSchemaModel):
             raise ValueError("product_profile.valuation_model_type must equal report valuation_model_type")
         if self.product_profile.sleeve_key != self.sleeve_key:
             raise ValueError("product_profile.sleeve_key must equal report sleeve_key")
+        if self.taxonomy_profile is not None:
+            if self.taxonomy_profile.legacy_valuation_model_type != self.valuation_model_type:
+                raise ValueError("taxonomy legacy valuation_model_type must equal report valuation_model_type")
+            if self.taxonomy_profile.legacy_sleeve_key != self.sleeve_key:
+                raise ValueError("taxonomy legacy sleeve_key must equal report sleeve_key")
         if self.market_context is not None and self.market_context.etf_code != self.etf_code:
             raise ValueError("market_context.etf_code must equal report etf_code")
 

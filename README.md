@@ -15,6 +15,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - ETF 研究不再区分 `profile` 和 `valuation` 两个任务类型。
 - `research` 必须识别 `valuation_model_type`: `broad_index`、`mainline_theme`、`factor_defensive`、`cash_like`。
 - `research` 必须识别 `sleeve_key`: `core_wide_etf`、`mainline_etf`、`defensive_quality`、`cash_like`。
+- `research` 必须绑定 `taxonomy_profile`；taxonomy 是认知和路由层，不替代现有四类估值模型。
 - 短融、日利、货币、现金类 ETF 归为 `cash_like`，默认不进入深度研究队列，只作为现金替代资格监控对象。
 - 新研究结果必须符合 `core/schema/etf_report.py` 的 `ETFResearchReport` schema，入库前强制校验。
 - `run_id` 由 `etf_code + task_type + research_date + schema_version` 计算，数据库强制唯一。
@@ -22,6 +23,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - `task_queue` 是唯一状态源；`research_queue` 只作为 prompt/projection/UI 表。
 - 参考价值区间和 signal 由 `core/valuation` 的确定性评分引擎生成，LLM 只负责构建输入和解释，不负责最终计算。
 - 市场状态和回撤由 `core/market`、`core/risk` 旁路生成，只作为研究上下文展示；当前版本不改变既有 ETF 类型化评分。
+- ETF taxonomy 由 `core/taxonomy` 旁路生成，只增强产品分类、队列路由和 API profile；当前版本不改变既有 signal。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
 - 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
@@ -74,6 +76,25 @@ myinvestetf/web.py
 | `mainline_theme` | `mainline_etf` | 主线有效性、行业资金、成交持续、估值容错和拥挤退潮风险。 |
 | `factor_defensive` | `defensive_quality` | 红利低波的股息利差、低波稳定性，或自由现金流 ETF 的 FCF yield、质量因子和风格机会成本。 |
 | `cash_like` | `cash_like` | 不做传统权益估值；只监控流动性、折溢价异常、久期风险、信用风险和收益稳定性。 |
+
+## ETF Taxonomy
+
+`taxonomy_profile` 将 ETF 细分为：
+
+- `broad_index_core`
+- `broad_index_growth`
+- `broad_index_value`
+- `sector_cyclical`
+- `sector_structural`
+- `theme_lifecycle`
+- `factor_strategy`
+- `cash_equivalent`
+- `bond_etf`
+- `commodity_etf`
+
+字段包括 `etf_type`、`subtype`、`lifecycle_stage`、`classification_confidence`、`classification_reasons`、`legacy_valuation_model_type` 和 `legacy_sleeve_key`。其中 `legacy_*` 用来保证新 taxonomy 与旧评分入口兼容。
+
+主题 ETF 的 `lifecycle_stage` 可为 `early`、`expansion`、`crowded`、`distribution`、`collapse`。当前生命周期只做分类说明，不直接改变估值评分。
 
 ## 市场状态与回撤
 
@@ -195,9 +216,10 @@ python -m pytest tests -q
 - `/etfs/{code}`：ETF 详情页，显示参考价格区间历史、产品结构、持仓披露、估值与流动性、风险与证伪、研究历史。
 - `/research?etf={code}`：主动研究入口；没有详情页时入队并跳转，有详情页时直接跳转。
 - `/api/index`：对外主结果接口。
-- `/api/latest`：对外研究成果接口，包含每只 ETF 的 `market_context`。
+- `/api/latest`：对外研究成果接口，包含每只 ETF 的 `taxonomy_profile` 和 `market_context`。
 - `/api/queue`：本地研究队列接口。
 - `/api/etfs`：当前 ETF 列表。
-- `/api/etfs/{code}`：单只 ETF 研究数据、`market_context`、队列状态和历史。
+- `/api/etfs/{code}`：单只 ETF 研究数据、`taxonomy_profile`、`market_context`、队列状态和历史。
+- `/api/etf/{code}/profile`：单只 ETF taxonomy profile。
 
 接口目录按“文档入口、Web 页面、当前数据、历史数据、分析结果、系统状态”分组。`/api` 只返回说明，不触发重计算、写入、交易、同步或外部请求；所有 `/api/*` 数据接口只读取本地结果。`/research` 是 Web 主动研究入口，可能写入本地研究队列，因此在目录中会单独标记为非只读公开路由。

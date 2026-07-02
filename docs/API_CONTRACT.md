@@ -17,6 +17,7 @@ http://127.0.0.1:8017
 - `key_results.primary_output.items[].category_key`: ETF 投资暴露类别
 - `key_results.primary_output.items[].valuation_model_type`: `broad_index`、`mainline_theme`、`factor_defensive` 或 `cash_like`
 - `key_results.primary_output.items[].sleeve_key`: `core_wide_etf`、`mainline_etf`、`defensive_quality` 或 `cash_like`
+- `key_results.primary_output.items[].taxonomy_profile`: ETF 分类画像
 - `source.upstream_endpoint`: 默认 `https://theme.okbbc.com/api/latest`
 - `source.upstream_result_path`: 默认 `result.theme_ranking[].top_etf + result.etf_top`，兼容旧 `key_results.primary_output.items`
 - `source.source_policy`: `/api/index` 保留 ETF 池；本地深研队列先列核心宽基 ETF 代表，再按每条主线保留一个流动性代表。
@@ -38,6 +39,7 @@ http://127.0.0.1:8017
 - `summary.complete_research_count`
 - `etfs[].leader.valuation_model_type`
 - `etfs[].leader.sleeve_key`
+- `etfs[].taxonomy_profile`
 - `etfs[].research.latest`
 - `etfs[].research.reference_value_history`
 - `etfs[].research.run_count`
@@ -92,6 +94,25 @@ http://127.0.0.1:8017
 - `decision_matrix`: 产品信号与 ETF 估值适配矩阵
 - `queue`: 队列状态
 - `trackable_history`: 历史入口记录
+
+## `/api/etf/{code}/profile`
+
+用途：输出单只 ETF 的 taxonomy profile。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.etf_profile.v1`
+- `code`
+- `name`
+- `type`: ETF taxonomy 类型
+- `subtype`
+- `lifecycle`: 主题生命周期阶段，非主题可为 `null`
+- `confidence`: 分类置信度
+- `classification_reasons`: 命中的分类规则
+- `legacy_valuation_model_type`: 兼容旧评分入口
+- `legacy_sleeve_key`: 兼容旧五仓角色
+
+该接口只读，不触发队列写入、重估值或交易动作。
 
 ## 约束
 

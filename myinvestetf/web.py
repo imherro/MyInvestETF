@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from core.market import build_market_context, market_context_to_dict
+from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
 from .config import DB_PATH, DEFAULT_HOST, DEFAULT_PORT, FOOTER_SCRIPT_URL, HEADER_SCRIPT_URL, ROOT, STATIC_ASSET_VERSION
@@ -70,6 +71,27 @@ REGIME_LABELS = {
     "rotation": "轮动/震荡",
 }
 
+TAXONOMY_LABELS = {
+    "broad_index_core": "核心宽基",
+    "broad_index_growth": "成长宽基",
+    "broad_index_value": "价值宽基",
+    "sector_cyclical": "周期行业",
+    "sector_structural": "结构行业",
+    "theme_lifecycle": "主题生命周期",
+    "factor_strategy": "策略因子",
+    "cash_equivalent": "现金替代",
+    "bond_etf": "债券ETF",
+    "commodity_etf": "商品ETF",
+}
+
+LIFECYCLE_LABELS = {
+    "early": "早期",
+    "expansion": "扩张",
+    "crowded": "拥挤",
+    "distribution": "派发",
+    "collapse": "退潮",
+}
+
 SLEEVE_LABELS = {
     "core_wide_etf": "核心宽基仓",
     "mainline_etf": "主线进攻仓",
@@ -108,6 +130,47 @@ def leader_category_key(row: object) -> str:
     return str(raw_map.get("category_key") or _row_value(row, "theme") or "")
 
 
+def _raw_map(row: object | None) -> dict[str, object]:
+    if row is None:
+        return {}
+    raw = load_json(_row_value(row, "raw_json"), {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def taxonomy_profile_from_sources(
+    *,
+    code: str,
+    leader: object | None = None,
+    latest: object | None = None,
+    fallback_name: str | None = None,
+) -> dict[str, object]:
+    latest_raw = _raw_map(latest)
+    raw_profile = latest_raw.get("taxonomy_profile")
+    if isinstance(raw_profile, dict):
+        return raw_profile
+
+    leader_raw = _raw_map(leader)
+    model_info = leader_model_info(leader)
+    source: dict[str, object] = {
+        **leader_raw,
+        **latest_raw,
+        "code": code,
+        "etf_code": code,
+        "name": _row_value(leader, "name") or _row_value(latest, "name") or fallback_name or code,
+        "theme": _row_value(leader, "theme") or leader_raw.get("theme") or latest_raw.get("theme"),
+        "category_key": leader_raw.get("category_key") or _row_value(leader, "theme"),
+        "market": load_json(_row_value(leader, "market_json"), {}) if leader is not None else {},
+        "scores": load_json(_row_value(leader, "scores_json"), {}) if leader is not None else {},
+        "risk_flags": load_json(_row_value(leader, "risk_flags_json"), []) if leader is not None else [],
+        "valuation_model_type": latest_raw.get("valuation_model_type") or model_info.get("valuation_model_type"),
+        "sleeve_key": latest_raw.get("sleeve_key") or model_info.get("sleeve_key"),
+    }
+    product_profile = latest_raw.get("product_profile")
+    if isinstance(product_profile, dict):
+        source["product_profile"] = product_profile
+    return taxonomy_profile_to_dict(classify_etf(source))
+
+
 def leader_to_summary(row: object) -> dict[str, object]:
     market = load_json(row["market_json"], {})
     scores = load_json(row["scores_json"], {})
@@ -119,6 +182,7 @@ def leader_to_summary(row: object) -> dict[str, object]:
         **model_info,
         "theme": row["theme"],
         "category_key": leader_category_key(row),
+        "taxonomy_profile": taxonomy_profile_from_sources(code=str(row["code"]), leader=row),
         "themes": load_json(row["themes_json"], []),
         "deep_rating": row["deep_rating"],
         "deep_label": row["deep_label"],
@@ -173,6 +237,7 @@ def research_run_to_summary(row: object) -> dict[str, object]:
         "multi_bagger_potential": row["multi_bagger_potential"],
         "heavy_position_view": row["heavy_position_view"],
         "valuation_signal": valuation_signal,
+        "taxonomy_profile": raw_map.get("taxonomy_profile"),
         "market_context": raw_map.get("market_context"),
         "evidence": load_json(row["evidence_json"], []),
         "assumptions": load_json(row["assumptions_json"], []),
@@ -863,9 +928,17 @@ def api_catalog(base_url: str) -> dict[str, object]:
                 _api_endpoint(
                     "GET",
                     "/api/etfs/{code}",
-                    "返回单只 ETF 的 leader、研究运行、决策矩阵、队列状态和历史记录。",
+                    "返回单只 ETF 的 leader、taxonomy、研究运行、决策矩阵、队列状态和历史记录。",
                     [{"name": "code", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
-                    "leader_summary、research_runs、decision_matrix、queue、trackable_history。",
+                    "leader_summary、taxonomy_profile、research_runs、decision_matrix、queue、trackable_history。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/api/etf/{code}/profile",
+                    "返回单只 ETF 的 taxonomy profile，不触发重新分类以外的写入动作。",
+                    [{"name": "code", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "type、subtype、lifecycle、confidence、classification_reasons。",
                     True,
                 ),
             ],
@@ -903,7 +976,8 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/latest", "reason": "读取当前 ETF 深研成果和决策矩阵。"},
             {"path": "/api/index", "reason": "读取当前 ETF 池和入口约束。"},
             {"path": "/api/queue", "reason": "读取当前待研究队列。"},
-            {"path": "/api/etfs/{code}", "reason": "读取单只 ETF 详情、历史和队列状态。"},
+            {"path": "/api/etfs/{code}", "reason": "读取单只 ETF 详情、taxonomy、历史和队列状态。"},
+            {"path": "/api/etf/{code}/profile", "reason": "读取单只 ETF taxonomy profile。"},
         ],
         "safety": {
             "api_catalog_read_only": True,
@@ -983,6 +1057,8 @@ def render_etf_cards(
         market = load_json(_row_value(row, "market_json"), {})
         model_info = leader_model_info(row)
         category_key = leader_category_key(row)
+        taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=row, latest=research_by_code.get(code))
+        etf_type = str(taxonomy_profile.get("etf_type") or "")
         latest = research_by_code.get(code)
         current_price = _display_current_price(latest, prices_by_code.get(code, []), market)
         reference_mid = _row_value(latest, "valuation_mid") if latest is not None else None
@@ -999,6 +1075,7 @@ def render_etf_cards(
         <div class="badges">
           <span class="badge badge-strong">{esc(_row_value(row, 'deep_rating') or '')} {esc(_row_value(row, 'deep_label') or '')}</span>
           <span class="badge">{esc(category_key)}</span>
+          <span class="badge">{esc(TAXONOMY_LABELS.get(etf_type, etf_type or '待分类'))}</span>
           <span class="badge">{esc(model_info.get('valuation_model_label'))}</span>
           <span class="badge">{esc(model_info.get('sleeve_label'))}</span>
         </div>
@@ -1348,6 +1425,31 @@ def render_market_context(context: dict[str, object] | None) -> str:
           {signal_item("修复速度", fmt_ratio_percent(drawdown.get("recovery_speed") if isinstance(drawdown, dict) else None, digits=3, signed=True), "日均，从本轮低点计算")}
           {signal_item("持续天数", drawdown.get("duration_days") if isinstance(drawdown, dict) else None, "交易日")}
         </div>
+      </section>"""
+
+
+def render_taxonomy_profile(profile: dict[str, object] | None) -> str:
+    profile = profile or {}
+    etf_type = str(profile.get("etf_type") or "")
+    lifecycle = str(profile.get("lifecycle_stage") or "")
+    reasons = profile.get("classification_reasons")
+    reason_items = "".join(
+        f"<li>{esc(reason)}</li>"
+        for reason in (reasons if isinstance(reasons, list) else [])
+        if str(reason).strip()
+    )
+    return f"""<section class="section-block">
+        <h2>ETF分类画像</h2>
+        <p class="muted">taxonomy 只增强产品认知和路由，本版本不改变既有类型化估值评分。</p>
+        <div class="signal-grid">
+          {signal_item("ETF类型", TAXONOMY_LABELS.get(etf_type, etf_type or "待分类"))}
+          {signal_item("子类", profile.get("subtype"))}
+          {signal_item("生命周期", LIFECYCLE_LABELS.get(lifecycle, lifecycle or "不适用"))}
+          {signal_item("分类置信度", fmt_ratio_percent(profile.get("classification_confidence")))}
+          {signal_item("兼容估值模型", profile.get("legacy_valuation_model_type"))}
+          {signal_item("兼容五仓角色", profile.get("legacy_sleeve_key"))}
+        </div>
+        <ul class="risk-list">{reason_items or '<li>等待分类依据入库。</li>'}</ul>
       </section>"""
 
 
@@ -1974,6 +2076,8 @@ def render_etf_page(code: str) -> bytes:
     valuation_signal = valuation_signal_summary(latest if latest else None)
     if valuation_signal.get("valuation_model_type") is None:
         valuation_signal.update(model_info)
+    taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest if latest else None, fallback_name=etf_name)
+    etf_type = str(taxonomy_profile.get("etf_type") or "")
     decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
     price_cache_for_display = chart_prices or context_prices
     market_context = market_context_from_prices(code, context_prices)
@@ -2020,6 +2124,7 @@ def render_etf_page(code: str) -> bytes:
           {metric("深研分", leader["deep_score"] if leader is not None else None)}
           {metric("当前价格", current_price)}
           {metric("估值分位", fmt_percentile(valuation_signal.get("valuation_percentile")))}
+          {metric("ETF分类", TAXONOMY_LABELS.get(etf_type, etf_type or "待分类"))}
           {metric("PE TTM", market.get("pe_ttm"))}
           {metric("PB", market.get("pb"))}
           {metric("估值框架", model_info.get("valuation_model_label"))}
@@ -2032,6 +2137,7 @@ def render_etf_page(code: str) -> bytes:
     <section class="content">
       {queue_status_section}
       {signal_matrix_section}
+      {render_taxonomy_profile(taxonomy_profile)}
       {render_market_context(market_context)}
       {render_valuation_chart(chart_runs, chart_prices)}
       {render_reference_price_explanation(latest if latest else None, valuation_signal)}
@@ -2158,6 +2264,7 @@ def api_latest() -> bytes:
             complete_research_count += len(reference_runs_for_etf)
             latest = latest_research_run(runs)
             leader_summary = leader_to_summary(leader)
+            taxonomy_profile = taxonomy_profile_from_sources(code=str(leader["code"]), leader=leader, latest=runs[0] if runs else None)
             decision_matrix = decision_matrix_summary(
                 leader_summary["upstream_signal"],
                 latest["valuation_signal"] if latest else valuation_signal_summary(None),
@@ -2170,6 +2277,7 @@ def api_latest() -> bytes:
                         "reference_value_history": valuation_history_payload(reference_runs_for_etf),
                         "run_count": len(runs),
                     },
+                    "taxonomy_profile": taxonomy_profile,
                     "market_context": market_context,
                     "decision_matrix": decision_matrix,
                 }
@@ -2209,6 +2317,7 @@ def api_etf(code: str) -> bytes:
         leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
         valuation_signal_summary(latest) if latest else valuation_signal_summary(None),
     )
+    taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest)
     market_context = market_context_from_prices(code, context_prices)
     return json.dumps(
         {
@@ -2216,6 +2325,7 @@ def api_etf(code: str) -> bytes:
             "leader_summary": leader_summary,
             "upstream_signal": leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
             "research_runs": runs,
+            "taxonomy_profile": taxonomy_profile,
             "market_context": market_context,
             "decision_matrix": decision_matrix,
             "queue": queue,
@@ -2223,6 +2333,37 @@ def api_etf(code: str) -> bytes:
         },
         ensure_ascii=False,
     ).encode("utf-8")
+
+
+def api_etf_profile(code: str) -> bytes:
+    with closing(connect(DB_PATH)) as conn:
+        leader = get_latest_leader(conn, code) or get_known_leader(conn, code)
+        runs = rows_to_dicts(list_research_runs(conn, code))
+        queue = rows_to_dicts(list_queue_for_etf(conn, code))
+    latest = next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)
+    fallback_name = _first_queue_name(queue, code) if queue else code
+    profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest, fallback_name=fallback_name)
+    payload = {
+        "schema_version": "myinvestetf.etf_profile.v1",
+        "code": code,
+        "name": _row_value(leader, "name") or (latest or {}).get("name") or fallback_name,
+        "taxonomy_profile": profile,
+        "type": profile.get("etf_type"),
+        "subtype": profile.get("subtype"),
+        "lifecycle": profile.get("lifecycle_stage"),
+        "confidence": profile.get("classification_confidence"),
+        "classification_reasons": profile.get("classification_reasons"),
+        "legacy_valuation_model_type": profile.get("legacy_valuation_model_type"),
+        "legacy_sleeve_key": profile.get("legacy_sleeve_key"),
+        "constraints": {
+            "read_only": True,
+            "research_only": True,
+            "contains_trade_orders": False,
+            "contains_cash_amounts": False,
+            "contains_share_counts": False,
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
 def api_queue() -> bytes:
@@ -2369,6 +2510,14 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/queue":
             self.send_bytes(api_queue(), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/etf/") and path.endswith("/profile"):
+            code = path.removeprefix("/api/etf/").removesuffix("/profile").strip("/").upper()
+            self.send_bytes(api_etf_profile(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/etfs/") and path.endswith("/profile"):
+            code = path.removeprefix("/api/etfs/").removesuffix("/profile").strip("/").upper()
+            self.send_bytes(api_etf_profile(code), "application/json; charset=utf-8")
             return
         if path.startswith("/api/etfs/"):
             code = path.removeprefix("/api/etfs/").upper()

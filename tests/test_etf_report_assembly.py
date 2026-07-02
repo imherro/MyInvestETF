@@ -81,6 +81,9 @@ class ETFReportAssemblyTests(unittest.TestCase):
         self.assertEqual(first.report_hash, second.report_hash)
         self.assertEqual(first.valuation_model_type, "broad_index")
         self.assertEqual(first.sleeve_key, "core_wide_etf")
+        self.assertIsNotNone(first.taxonomy_profile)
+        assert first.taxonomy_profile is not None
+        self.assertEqual(first.taxonomy_profile.legacy_valuation_model_type, "broad_index")
         self.assertEqual(first.valuation.method, "broad-index-valuation+ERP")
         self.assertIsNotNone(first.valuation.reference_value_mid)
 

@@ -123,6 +123,20 @@ class ETFReportSchemaTests(unittest.TestCase):
         self.assertEqual(report.market_context.regime.regime, "rotation")
         self.assertEqual(report.market_context.drawdown.duration_days, 6)
 
+    def test_research_report_accepts_taxonomy_profile(self) -> None:
+        payload = base_report()
+        payload["taxonomy_profile"] = {
+            "etf_type": "broad_index_core",
+            "subtype": "core_beta",
+            "lifecycle_stage": None,
+            "classification_confidence": 0.9,
+            "classification_reasons": ["keyword:core broad index"],
+            "legacy_valuation_model_type": "broad_index",
+            "legacy_sleeve_key": "core_wide_etf",
+        }
+        report = validate_etf_research_report(payload)
+        self.assertEqual(report.taxonomy_profile.etf_type, "broad_index_core")
+
     def test_research_report_requires_complete_reference_range(self) -> None:
         payload = base_report()
         payload["valuation"]["reference_value_low"] = None

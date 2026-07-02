@@ -48,6 +48,7 @@ python scripts/generate_single_etf_prompt.py --next --claim
 - 唯一研究对象：`{code} {name}`。
 - `report_id`、`basis_date`、主题/资产类别。
 - `valuation_model_type` 和 `sleeve_key`。
+- `taxonomy_profile`，包括 `etf_type`、`subtype`、`lifecycle_stage` 和分类理由。
 - Tushare 优先数据源：`fund_basic`、`fund_daily`、`fund_nav`、`fund_share`、`fund_portfolio`、`index_daily`。
 - `fund_portfolio` 只能作为已披露季报持仓，不得写成实时完整底仓。
 - 输出必须构建 `research assembly_input`，最终报告由确定性脚本生成。
@@ -61,6 +62,7 @@ Research 必须回答：
 - ETF 属于核心宽基、主线进攻、收益防御、现金替代还是不适合作为组合工具。
 - 持仓披露日期、前十大持仓、集中度、披露滞后和数据缺口。
 - 净值、价格、折溢价、底层指数 PE/PB、估值分位和类型化 `model_specific_inputs`。
+- ETF taxonomy；所有 ETF 评分必须绑定 taxonomy，不能只按旧四类估值模型解释。
 - ETF 日行情和底层指数日行情；如可取得，写入 `assembly_input.price_series` 和 `assembly_input.index_price_series`，由系统生成市场状态与回撤。
 - 跟踪质量、流动性、证伪条件和组合角色。
 
@@ -72,6 +74,7 @@ python scripts/import_research_run.py temp/reports/{code}_research_{basis_date}.
 ```
 
 LLM 只能负责收集、清洗、归一化输入和解释脚本输出，不能重新计算参考价值区间、signal、grade、`report_hash` 或 `run_id`。
+taxonomy_profile 由系统根据 ETF 元数据、跟踪指数、行业/主题暴露、波动和流动性线索生成；LLM 只能提供证据，不手写最终分类结论。
 市场状态 `market_context.regime` 与回撤 `market_context.drawdown` 也由系统根据行情序列生成；LLM 不手写这些最终字段。
 
 ## 类型化研究依据

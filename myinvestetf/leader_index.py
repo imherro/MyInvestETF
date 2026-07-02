@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.valuation import normalize_valuation_model_type, sleeve_for_valuation_model
 
 from .config import DB_PATH, LEADER_INDEX_URL, RAW_DATA_DIR
@@ -133,7 +134,7 @@ DEFENSIVE_CATEGORY_ORDER = {item["category_key"]: index for index, item in enume
 ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
 - 最终只输出一个 JSON object，不要输出 Markdown 包裹。
 - JSON 必须符合 core/schema/etf_report.py 中 ETFResearchReport。
-- 顶层字段固定为：schema_version, report_version, report_hash, run_id, etf_code, etf_name, source_report_id, task_type, research_date, status, valuation_model_type, sleeve_key, title, summary, product_profile, holdings_profile, valuation, base_position_view, risk, conclusion, market_context, evidence, assumptions, data_gaps。
+- 顶层字段固定为：schema_version, report_version, report_hash, run_id, etf_code, etf_name, source_report_id, task_type, research_date, status, valuation_model_type, sleeve_key, title, summary, product_profile, holdings_profile, valuation, base_position_view, risk, conclusion, taxonomy_profile, market_context, evidence, assumptions, data_gaps。
 - 禁止输出 schema 以外的额外字段；禁止把未定义内容塞进自由 dict。
 - etf_code 使用唯一研究对象代码，etf_name 使用唯一研究对象名称，source_report_id 使用入口 report_id。
 - research_date 必须使用入口 basis_date。
@@ -145,6 +146,7 @@ ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
 - valuation 必须包含 current_price, nav, premium_discount, underlying_pe, underlying_pb, valuation_percentile, reference_value_low, reference_value_mid, reference_value_high, unit, method, confidence, key_assumptions；可包含 engine_version, undervalued_score, liquidity_score, tracking_score, portfolio_role_score, risk_adjusted_score, mainline_validity_score, valuation_tolerance_score, crowding_risk_score, factor_premium_score, cash_like_safety_score。
 - risk 必须包含 liquidity_risk, tracking_risk, concentration_risk, sentiment_risk, invalidation_conditions。
 - conclusion 必须包含 grade, confidence, summary；grade 必须等于 base_position_view。
+- taxonomy_profile 可为 null 或系统生成对象；如存在，必须包含 etf_type, subtype, lifecycle_stage, classification_confidence, classification_reasons, legacy_valuation_model_type, legacy_sleeve_key。
 - market_context 可为 null；如存在，必须由系统根据 price_series / index_price_series 或本地行情缓存生成，不得手写。
 - evidence 是对象数组，每项必须包含 source, date, url, purpose, detail。
 - assumptions 和 data_gaps 都是字符串数组。
@@ -156,12 +158,13 @@ RESEARCH_ASSEMBLY_INPUT_INSTRUCTION = """ETF research assembly_input 结构化�
 - 你的角色是 ETF 完整深研输入构建器，不是最终报告计算器。
 - 不要手写最终 ETFResearchReport；最终报告必须由 scripts/build_research_report.py 或 core/report.build_etf_report(...) 生成。
 - 不要临场计算最终参考价值区间、signal、grade 或 report_hash；这些由 deterministic engine 生成。
-- assembly_input 必须是一个 JSON object，至少包含 etf_code, etf_name, source_report_id, task_type, research_date, valuation_model_type, sleeve_key, product_profile, holdings_inputs, valuation_inputs, model_specific_inputs, liquidity_inputs, tracking_inputs, risk_signals, evidence, assumptions, data_gaps；可包含 price_series 和 index_price_series。
+- assembly_input 必须是一个 JSON object，至少包含 etf_code, etf_name, source_report_id, task_type, research_date, valuation_model_type, sleeve_key, product_profile, holdings_inputs, valuation_inputs, model_specific_inputs, liquidity_inputs, tracking_inputs, risk_signals, evidence, assumptions, data_gaps；可包含 taxonomy_profile、price_series 和 index_price_series。
 - task_type 固定为 research；research_date 使用入口 basis_date。
 - product_profile 放 ETF 产品结构、基金类型、跟踪指数、资产类别、费率、规模、流动性、组合角色。
 - holdings_inputs 放 holdings_disclosure_date, top_holdings, concentration_ratio, concentration_note, overlap_note, disclosure_lag_note；必须说明 fund_portfolio 是披露滞后口径，不是实时完整持仓。
 - valuation_inputs 放 ETF 估值输入：current_price, nav/unit_nav, premium_discount, underlying_pe, underlying_pb, valuation_percentile, unit。
 - model_specific_inputs 必须按 valuation_model_type 分类型填写，不能把不同 ETF 类型混用同一套依据。
+- 所有 ETF 评分必须绑定 taxonomy；taxonomy_profile 由系统根据 ETF 元数据分类生成，LLM 不得把未验证分类理由写成事实。
 - liquidity_inputs 放 ETF 流动性输入：turnover_amount, fund_size, share_change_ratio；fund_share 是份额变化的可用代理。
 - tracking_inputs 放 tracking_error、discount_premium_history_note、index_replication_note 等跟踪质量输入。
 - price_series 放 ETF 日行情序列，index_price_series 放底层指数日行情序列；字段至少包括 trade_date 和 close/close_price，可包含 amount/volume。系统据此生成 market_context，LLM 不手写最终 market_context。
@@ -260,12 +263,31 @@ def etf_sleeve_key(item: dict[str, Any]) -> str:
     return sleeve_for_valuation_model(etf_model_type(item))
 
 
+def etf_taxonomy_profile(item: dict[str, Any]) -> dict[str, Any]:
+    model_type = etf_model_type(item)
+    source = {
+        **item,
+        "valuation_model_type": model_type,
+        "sleeve_key": sleeve_for_valuation_model(model_type),
+    }
+    return taxonomy_profile_to_dict(classify_etf(source))
+
+
+def _attach_taxonomy_profile(item: dict[str, Any]) -> None:
+    item["taxonomy_profile"] = etf_taxonomy_profile(item)
+
+
 def _model_context(item: dict[str, Any]) -> dict[str, str]:
     model_type = etf_model_type(item)
     sleeve_key = sleeve_for_valuation_model(model_type)
+    taxonomy = etf_taxonomy_profile({**item, "valuation_model_type": model_type, "sleeve_key": sleeve_key})
     return {
         "valuation_model_type": model_type,
         "sleeve_key": sleeve_key,
+        "etf_type": str(taxonomy.get("etf_type")),
+        "subtype": str(taxonomy.get("subtype")),
+        "lifecycle_stage": str(taxonomy.get("lifecycle_stage") or ""),
+        "classification_confidence": str(taxonomy.get("classification_confidence")),
         "research_instruction": MODEL_RESEARCH_INSTRUCTIONS[model_type],
     }
 
@@ -444,6 +466,7 @@ def _normalize_theme_ranking_etf_item(theme_item: dict[str, Any], code: str, nam
     normalized["valuation_model_type"] = model_type
     normalized["sleeve_key"] = sleeve_for_valuation_model(model_type)
     normalized["category_key"] = etf_category_key(normalized)
+    _attach_taxonomy_profile(normalized)
     return normalized
 
 
@@ -475,6 +498,7 @@ def _normalize_broad_index_seed_item(seed: dict[str, Any]) -> dict[str, Any]:
     )
     normalized["valuation_model_type"] = "broad_index"
     normalized["sleeve_key"] = sleeve_for_valuation_model("broad_index")
+    _attach_taxonomy_profile(normalized)
     return normalized
 
 
@@ -506,6 +530,7 @@ def _normalize_defensive_seed_item(seed: dict[str, Any]) -> dict[str, Any]:
     )
     normalized["valuation_model_type"] = "factor_defensive"
     normalized["sleeve_key"] = sleeve_for_valuation_model("factor_defensive")
+    _attach_taxonomy_profile(normalized)
     return normalized
 
 
@@ -579,6 +604,8 @@ def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
             model_type = etf_model_type(normalized)
             normalized["valuation_model_type"] = model_type
             normalized["sleeve_key"] = sleeve_for_valuation_model(model_type)
+            normalized["category_key"] = etf_category_key(normalized)
+            _attach_taxonomy_profile(normalized)
             clean_items_by_code[code] = normalized
     for normalized in _theme_ranking_items(payload):
         existing = clean_items_by_code.get(normalized["code"])
@@ -601,6 +628,12 @@ def primary_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 clean_items_by_code[normalized["code"]] = normalized
             else:
                 _merge_item(existing, normalized)
+    for item in clean_items_by_code.values():
+        model_type = etf_model_type(item)
+        item["valuation_model_type"] = model_type
+        item["sleeve_key"] = sleeve_for_valuation_model(model_type)
+        item["category_key"] = etf_category_key(item)
+        _attach_taxonomy_profile(item)
     return list(clean_items_by_code.values())
 
 
@@ -734,6 +767,9 @@ def build_research_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
 - 主题/资产类别：{theme}
 - valuation_model_type：{model['valuation_model_type']}
 - sleeve_key：{model['sleeve_key']}
+- taxonomy.etf_type：{model['etf_type']}
+- taxonomy.subtype：{model['subtype']}
+- taxonomy.lifecycle_stage：{model['lifecycle_stage'] or '不适用'}
 
 硬约束：
 - 只研究这一只 ETF，禁止同时研究其他 ETF。
@@ -742,6 +778,7 @@ def build_research_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
 - 本任务一次性完成产品结构、指数、持仓、流动性、跟踪、估值输入、风险和组合角色研究。
 - fund_portfolio 只能作为已披露季报持仓，不得表述为实时完整底仓。
 - 最终参考价值区间、signal、grade、report_hash 和 run_id 必须由 deterministic pipeline 生成，LLM 不得手写。
+- ETF scoring 必须绑定 taxonomy；分类理由只能来自产品、指数、持仓、行业暴露、波动或流动性证据。
 - 不输出交易指令、不输出现金金额、不输出份额数量。
 
 类型化研究要求：
@@ -785,6 +822,9 @@ def build_requested_research_prompt(item: dict[str, Any], report: dict[str, Any]
 - basis_date：{basis_date}
 - valuation_model_type：{model['valuation_model_type']}
 - sleeve_key：{model['sleeve_key']}
+- taxonomy.etf_type：{model['etf_type']}
+- taxonomy.subtype：{model['subtype']}
+- taxonomy.lifecycle_stage：{model['lifecycle_stage'] or '不适用'}
 
 硬约束：
 - 这只 ETF 不要求出现在 /api/index。
@@ -793,6 +833,7 @@ def build_requested_research_prompt(item: dict[str, Any], report: dict[str, Any]
 - 本任务一次性完成产品结构、持仓披露、估值输入、类型化模型输入、风险和组合角色研究。
 - 最终 ETFResearchReport 必须由 scripts/build_research_report.py 或 core/report.build_etf_report(...) 生成。
 - LLM 不能重新计算参考价值区间、signal、grade、report_hash 或 run_id。
+- ETF scoring 必须绑定 taxonomy；分类理由只能来自产品、指数、持仓、行业暴露、波动或流动性证据。
 - 不输出交易指令、不输出现金金额、不输出份额数量。
 
 类型化研究要求：
@@ -845,6 +886,7 @@ def enqueue_requested_etf(
     model_type = etf_model_type(item)
     item["valuation_model_type"] = model_type
     item["sleeve_key"] = sleeve_for_valuation_model(model_type)
+    _attach_taxonomy_profile(item)
     now = utc_now()
     db_target = Path(db_path) if db_path is not None else DB_PATH
     init_db(db_target)

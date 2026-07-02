@@ -42,6 +42,7 @@ from myinvestetf.web import (
     render_valuation_chart,
     render_queue_rows,
     render_layout,
+    render_taxonomy_profile,
     valuation_signal_summary,
     xueqiu_etf_link,
 )
@@ -506,6 +507,7 @@ class ETFContractTests(unittest.TestCase):
         }
         summary = leader_to_summary(row)
         self.assertEqual(summary["category_key"], "沪深300")
+        self.assertEqual(summary["taxonomy_profile"]["etf_type"], "broad_index_core")
         self.assertEqual(summary["links"]["page"], "/etfs/510300.SH")
         self.assertEqual(summary["links"]["api"], "/api/etfs/510300.SH")
 
@@ -531,6 +533,7 @@ class ETFContractTests(unittest.TestCase):
         )
         self.assertTrue(paths["/api"]["read_only"])
         self.assertFalse(paths["/research"]["read_only"])
+        self.assertIn("/api/etf/{code}/profile", paths)
         self.assertIn("/api/latest", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("不触发重计算", " ".join(catalog["safety"]["boundaries"]))
 
@@ -541,6 +544,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api", parsed["paths"])
         self.assertIn("/api/latest", parsed["paths"])
         self.assertIn("/api/etfs/{code}", parsed["paths"])
+        self.assertIn("/api/etf/{code}/profile", parsed["paths"])
         self.assertIn("303", parsed["paths"]["/research"]["get"]["responses"])
 
     def test_home_api_overview_mentions_entrypoints_and_boundaries(self) -> None:
@@ -725,6 +729,24 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("当前回撤", html)
         self.assertIn("8.00%", html)
         self.assertIn("82.50%", html)
+
+    def test_taxonomy_profile_section_renders_reasons(self) -> None:
+        html = render_taxonomy_profile(
+            {
+                "etf_type": "theme_lifecycle",
+                "subtype": "structural_theme",
+                "lifecycle_stage": "expansion",
+                "classification_confidence": 0.82,
+                "classification_reasons": ["source:theme lifecycle candidate"],
+                "legacy_valuation_model_type": "mainline_theme",
+                "legacy_sleeve_key": "mainline_etf",
+            }
+        )
+        self.assertIn("ETF分类画像", html)
+        self.assertIn("主题生命周期", html)
+        self.assertIn("扩张", html)
+        self.assertIn("82.00%", html)
+        self.assertIn("source:theme lifecycle candidate", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})

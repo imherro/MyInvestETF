@@ -34,7 +34,7 @@ def main() -> int:
     except FileNotFoundError:
         ok &= check(False, "git is available")
 
-    for module in ["myinvestetf.db", "myinvestetf.leader_index", "myinvestetf.web", "core.market", "core.risk"]:
+    for module in ["myinvestetf.db", "myinvestetf.leader_index", "myinvestetf.web", "core.market", "core.risk", "core.taxonomy"]:
         try:
             importlib.import_module(module)
             ok &= check(True, f"import {module}")
@@ -53,6 +53,7 @@ def main() -> int:
     ok &= check("ETFResearchReport" in leader_source, "ETF report prompt schema is wired")
     ok &= check("valuation_model_type" in leader_source and "model_specific_inputs" in leader_source, "type-aware ETF research prompts are wired")
     ok &= check("market_context" in leader_source and "price_series" in leader_source, "market context prompt inputs are wired")
+    ok &= check("taxonomy_profile" in leader_source and "所有 ETF 评分必须绑定 taxonomy" in leader_source, "taxonomy-bound ETF prompts are wired")
     ok &= check("task_type 固定为 research" in leader_source, "ETF queue uses unified research task type")
     ok &= check(
         "build_profile_prompt" not in leader_source and "build_valuation_prompt" not in leader_source,
@@ -61,6 +62,7 @@ def main() -> int:
     ok &= check((ROOT / "core" / "valuation" / "classification.py").exists(), "ETF valuation classification layer exists")
     ok &= check((ROOT / "core" / "market" / "regime.py").exists(), "ETF market regime layer exists")
     ok &= check((ROOT / "core" / "risk" / "drawdown.py").exists(), "ETF drawdown layer exists")
+    ok &= check((ROOT / "core" / "taxonomy" / "etf_classifier.py").exists(), "ETF taxonomy classifier exists")
     queue_prompt_doc = ROOT / "docs" / "QUEUE_PROMPTS.md"
     queue_script = (ROOT / "scripts" / "generate_single_etf_prompt.py").read_text(encoding="utf-8")
     ok &= check(queue_prompt_doc.exists(), "ETF queue prompt contract is documented")

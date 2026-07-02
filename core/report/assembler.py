@@ -9,6 +9,7 @@ from typing import Any
 from core.market import build_market_context, market_context_to_dict
 from core.observability import TraceRecorder
 from core.schema.etf_report import ETFResearchReport
+from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.task.state import compute_task_run_id
 from core.valuation import (
     ETFFeatures,
@@ -84,6 +85,26 @@ def _market_context_payload(etf_code: str, input_data: Mapping[str, Any]) -> dic
         index_prices=index_price_rows if index_price_rows else None,
     )
     return market_context_to_dict(context)
+
+
+def _taxonomy_profile_payload(
+    input_data: Mapping[str, Any],
+    product_inputs: Mapping[str, Any],
+    *,
+    model_type: str,
+    sleeve_key: str,
+) -> dict[str, Any]:
+    raw_profile = input_data.get("taxonomy_profile")
+    canonical_profile = _canonical(raw_profile)
+    if isinstance(canonical_profile, Mapping):
+        return dict(canonical_profile)
+    classifier_input = {
+        **dict(input_data),
+        "product_profile": dict(product_inputs),
+        "valuation_model_type": model_type,
+        "sleeve_key": sleeve_key,
+    }
+    return taxonomy_profile_to_dict(classify_etf(classifier_input))
 
 
 def _canonical(value: object) -> object:
@@ -209,6 +230,12 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
     sleeve_key = normalize_sleeve_key(input_data.get("sleeve_key") or product_inputs.get("sleeve_key"), model_type)
     model_specific_inputs = _as_mapping(input_data.get("model_specific_inputs"))
     features = extract_etf_features(input_data)
+    taxonomy_profile = _taxonomy_profile_payload(
+        input_data,
+        product_inputs,
+        model_type=model_type,
+        sleeve_key=sleeve_key,
+    )
     market_context = _market_context_payload(etf_code, input_data)
 
     if trace_recorder is not None:
@@ -228,6 +255,23 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
                 "valuation_percentile": _round_float(features.valuation_percentile),
                 "premium_discount": _round_float(features.premium_discount),
                 "tracking_error": _round_float(features.tracking_error),
+            },
+        )
+    if trace_recorder is not None:
+        trace_recorder.record(
+            run_id=run_id,
+            stage="taxonomy",
+            input_payload={
+                "etf_code": etf_code,
+                "etf_name": etf_name,
+                "valuation_model_type": model_type,
+                "sleeve_key": sleeve_key,
+                "product": product_inputs,
+            },
+            output_payload=taxonomy_profile,
+            diff_metrics={
+                "etf_type": taxonomy_profile.get("etf_type"),
+                "classification_confidence": taxonomy_profile.get("classification_confidence"),
             },
         )
     if trace_recorder is not None and market_context is not None:
@@ -294,6 +338,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
         "holdings": holdings_inputs,
         "valuation": valuation_inputs,
         "model_specific": model_specific_inputs,
+        "taxonomy_profile": taxonomy_profile,
     }
     if market_context is not None:
         feature_hash_inputs["market_context"] = market_context
@@ -400,6 +445,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             "confidence": conclusion.confidence,
             "summary": conclusion.summary,
         },
+        "taxonomy_profile": taxonomy_profile,
         "market_context": market_context,
         "evidence": evidence_items,
         "assumptions": [
