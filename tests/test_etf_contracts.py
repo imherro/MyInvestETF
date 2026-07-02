@@ -39,6 +39,7 @@ from myinvestetf.web import (
     portfolio_use_view,
     render_api_overview,
     render_ask_widget,
+    render_contrarian_signal,
     render_current_decision_summary,
     render_etf_cards,
     render_market_context,
@@ -548,6 +549,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertTrue(paths["/api/ask/{etf}"]["read_only"])
         self.assertIn("/api/score/decompose/{etf}", paths)
         self.assertIn("/api/decision/state/{etf}", paths)
+        self.assertIn("/api/strategy/contrarian/{etf}", paths)
         self.assertIn("/api/replay/{etf}", paths)
         self.assertIn("/api/replay/{etf}/stability", paths)
         self.assertIn("/api/replay/{etf}/regime-path", paths)
@@ -562,6 +564,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/market/regime-v2", paths)
         self.assertIn("/api/latest", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("/api/ask/{etf}", [item["path"] for item in catalog["recommended_entrypoints"]])
+        self.assertIn("/api/strategy/contrarian/{etf}", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("不触发重计算", " ".join(catalog["safety"]["boundaries"]))
 
     def test_openapi_json_contains_catalog_paths(self) -> None:
@@ -578,6 +581,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/ask/{etf}", parsed["paths"])
         self.assertIn("/api/score/decompose/{etf}", parsed["paths"])
         self.assertIn("/api/decision/state/{etf}", parsed["paths"])
+        self.assertIn("/api/strategy/contrarian/{etf}", parsed["paths"])
         self.assertIn("/api/replay/{etf}", parsed["paths"])
         self.assertIn("/api/replay/{etf}/stability", parsed["paths"])
         self.assertIn("/api/replay/{etf}/regime-path", parsed["paths"])
@@ -855,6 +859,28 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("risk_on:watch:uptrend", html)
         self.assertIn("动态权重", html)
         self.assertIn("不输出交易动作", html)
+
+    def test_contrarian_signal_section_renders_probability_mode(self) -> None:
+        html = render_contrarian_signal(
+            {
+                "enabled": True,
+                "scores": {"reversal_probability": 0.72, "exhaustion_score": 0.81, "capitulation_score": 0.68},
+                "conditions": {"drawdown_extreme": True, "regime_stress": True, "liquidity_stress": False},
+                "adjusted_interpretation": {
+                    "risk_adjusted_score": 63.0,
+                    "original_decision_score": 60.0,
+                    "final_view": "probabilistic_bottom_zone",
+                    "explanation": "不是趋势买点。",
+                },
+                "evidence": {"current_drawdown": 0.25, "extreme_proximity": 0.93},
+            }
+        )
+
+        self.assertIn("抄底概率模式", html)
+        self.assertIn("概率底部观察区", html)
+        self.assertIn("72.00%", html)
+        self.assertIn("不覆盖 Decision Score", html)
+        self.assertIn("不是趋势买点", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})

@@ -143,6 +143,21 @@ Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 
 
 该层只用于解释和研究排序，不改写参考价格区间或入库报告。收益防御/自由现金流 ETF 的深回撤会形成 `drawdown_opportunity_score`，并可提升运行时估值组件分。
 
+## Contrarian Signal Output
+
+抄底概率模式不写入 `ETFResearchReport` 强 schema，当前通过 `/api/strategy/contrarian/*` 和 ETF 详情页生成。字段包括：
+
+- `enabled`: 是否进入 Contrarian Mode。
+- `scores.reversal_probability`: 反转概率，只表示概率底部观察，不表示买入指令。
+- `scores.exhaustion_score`: 趋势衰竭分。
+- `scores.capitulation_score`: 恐慌释放分。
+- `conditions.drawdown_extreme`: 是否满足极端回撤。
+- `conditions.regime_stress`: Regime v2 是否处于压力状态。
+- `conditions.liquidity_stress`: 流动性或 flow 是否处于压力。
+- `adjusted_interpretation.final_view`: `probabilistic_bottom_zone`、`normal` 或 `not_active`。
+
+该层是 `DecisionSignal` 的再解释层，不覆盖原始 `DecisionSignal.score`，不输出交易动作、现金金额或份额数量。
+
 ## Replay Report Output
 
 历史回放不写入 `ETFResearchReport` 强 schema，当前通过 `/api/replay/*` 输出。字段包括：

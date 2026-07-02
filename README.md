@@ -27,6 +27,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；用于因子暴露、IC、DecisionSignal 组件评分和解释。
 - 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，并参与状态感知研究评分。
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
+- 抄底概率模式由 `core/strategy` 生成，在极端回撤、压力状态和波动释放时输出 `ContrarianSignal`；它只做 DecisionSignal 的再解释，不覆盖原始评分。
 - 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
 - 研究治理由 `core/governance` 生成，输出数据完整性、因子有效性、regime 稳定性、报告质量和系统健康分，用来判断研究结果是否可信、是否应被 gate 阻断。
 - 自然语言决策解释由 `core/interpreter` 生成，把已有 `DecisionSignal + taxonomy + governance` 翻译成结构化解释；最终回答统一由 `AnswerPolicyEngine` 生成。该层只读，不输出买卖动作、现金金额或份额数量。
@@ -75,6 +76,7 @@ myinvestetf/web.py
   /api/score         单只 ETF 状态感知研究评分
   /api/ask           单只 ETF 自然语言决策解释
   /api/decision      单只 ETF 状态机输出
+  /api/strategy      单只 ETF 抄底概率模式
   /api/replay        单只 ETF 历史评分回放
   /api/health        系统研究健康度与治理 gate
   /api/queue         本地队列
@@ -171,6 +173,18 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 基础权重随市场状态变化：`risk_on` 更重动量和流动性，`risk_off` 更重估值和风险，`shock` 更重风险和流动性，`rotation` 保持均衡。taxonomy 会二次调整权重，例如主线主题更重动量和流动性，核心宽基更重估值和风险，收益防御策略更重估值质量和风险稳定性。
 
 该层只用于“解释 + 评分 + 状态驱动权重”，不输出买卖动作、仓位比例、现金金额、份额数量，也不执行 rebalance。
+
+## 抄底概率模式
+
+`core/strategy` 提供 Contrarian Mode。它不是买入信号，而是极端回撤下的概率底部观察层：
+
+- `drawdown_extreme`: 当前回撤接近历史滚动最大回撤、回撤分位较高，或回撤本身进入极端区。
+- `regime_stress`: Regime v2 处于 `risk_off` 或 `shock`。
+- `liquidity_stress`: 流动性或 flow 因子显示压力。
+- `reversal_probability`: 由极端回撤、恐慌释放、趋势衰竭和治理可信度组合生成。
+- `final_view`: `probabilistic_bottom_zone`、`normal` 或 `not_active`。
+
+该层只读，不修改 `DecisionSignal.score`，不输出交易动作、现金金额或份额数量。Web 详情页和 `GET /api/strategy/contrarian/{etf}` 会展示它的概率、触发条件和“不是趋势买点”的解释。
 
 ## 自然语言决策解释层
 
@@ -337,6 +351,7 @@ python -m pytest tests -q
 - `/api/ask/{etf}?q={question}`：单只 ETF 自然语言决策解释，最终回答统一由 `AnswerPolicyEngine` 生成。
 - `/api/score/decompose/{etf}`：单只 ETF 评分组件、动态权重和贡献拆解。
 - `/api/decision/state/{etf}`：单只 ETF 状态机输出。
+- `/api/strategy/contrarian/{etf}`：单只 ETF 抄底概率模式，不覆盖原 Decision Score。
 - `/api/replay/{etf}`：单只 ETF 历史 DecisionSignal 回放报告。
 - `/api/replay/{etf}/stability`：单只 ETF 回放稳定性指标。
 - `/api/replay/{etf}/regime-path`：单只 ETF 历史 regime path 和状态切换矩阵。

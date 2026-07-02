@@ -41,6 +41,7 @@ from core.market import (
     market_structure_to_dict,
 )
 from core.replay import build_replay_report, replay_report_to_dict
+from core.strategy import ContrarianModeEngine, contrarian_signal_to_dict
 from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
@@ -1350,6 +1351,14 @@ def api_catalog(base_url: str) -> dict[str, object]:
                 ),
                 _api_endpoint(
                     "GET",
+                    "/api/strategy/contrarian/{etf}",
+                    "返回单只 ETF 的 Contrarian Mode 抄底概率模式，不覆盖原 Decision Score。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "enabled、reversal_probability、exhaustion_score、capitulation_score、conditions、final_view。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
                     "/api/replay/{etf}",
                     "返回单只 ETF 的历史 DecisionSignal 回放报告。",
                     [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
@@ -1414,6 +1423,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/factors/{etf}", "reason": "读取单只 ETF 标准化因子暴露。"},
             {"path": "/api/score/{etf}", "reason": "读取单只 ETF 状态感知研究评分。"},
             {"path": "/api/ask/{etf}", "reason": "按问题读取统一策略层生成的 ETF 决策解释。"},
+            {"path": "/api/strategy/contrarian/{etf}", "reason": "读取极端回撤下的抄底概率模式。"},
             {"path": "/api/replay/{etf}", "reason": "读取单只 ETF 历史评分回放和稳定性验证。"},
             {"path": "/api/health/system", "reason": "读取系统研究可信度总览。"},
             {"path": "/api/market/regime-v2", "reason": "读取结构驱动市场状态。"},
@@ -1958,6 +1968,29 @@ def decision_signal_from_inputs(
     )
 
 
+def contrarian_signal_from_inputs(
+    *,
+    code: str,
+    market_context: dict[str, object] | None,
+    market_regime_v2: dict[str, object] | None,
+    market_structure: dict[str, object] | None,
+    factor_exposure: dict[str, object] | None,
+    governance_report: dict[str, object] | None,
+    decision_signal: dict[str, object] | None,
+) -> dict[str, object]:
+    engine = ContrarianModeEngine(
+        {
+            "etf_code": code,
+            "drawdown": (market_context or {}).get("drawdown") if isinstance(market_context, dict) else {},
+            "regime_v2": market_regime_v2 or {},
+            "market_structure": market_structure or {},
+        },
+        factor_exposure or {},
+        governance_report or {},
+    )
+    return contrarian_signal_to_dict(engine.adjust_decision(decision_signal or {}))
+
+
 def render_factor_exposure(exposure: dict[str, object] | None) -> str:
     exposure = exposure or {}
     factors = exposure.get("factors")
@@ -2030,6 +2063,44 @@ def render_decision_signal(signal: dict[str, object] | None) -> str:
           </table>
         </div>
         <p class="signal-note">{esc(signal.get("explanation") or "等待决策评分输入。")}</p>
+      </section>"""
+
+
+def render_contrarian_signal(signal: dict[str, object] | None) -> str:
+    signal = signal or {}
+    scores = signal.get("scores") if isinstance(signal.get("scores"), dict) else {}
+    conditions = signal.get("conditions") if isinstance(signal.get("conditions"), dict) else {}
+    adjusted = signal.get("adjusted_interpretation") if isinstance(signal.get("adjusted_interpretation"), dict) else {}
+    evidence = signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
+    final_view = str(adjusted.get("final_view") or signal.get("final_view") or "not_active")
+    final_label = {
+        "probabilistic_bottom_zone": "概率底部观察区",
+        "normal": "普通模式观察",
+        "not_active": "未触发",
+    }.get(final_view, final_view)
+    condition_items = "".join(
+        f"<li>{esc(label)}：{esc('满足' if bool(conditions.get(key)) else '未满足')}</li>"
+        for key, label in [
+            ("drawdown_extreme", "极端回撤"),
+            ("regime_stress", "压力状态"),
+            ("liquidity_stress", "流动性压力"),
+        ]
+    )
+    return f"""<section class="section-block">
+        <h2>抄底概率模式</h2>
+        <p class="muted">Contrarian Mode 是极端回撤下的再解释层，只输出概率底部观察，不覆盖 Decision Score，不输出交易动作。</p>
+        <div class="signal-grid">
+          {signal_item("模式状态", "ON" if signal.get("enabled") else "OFF", final_label)}
+          {signal_item("反转概率", fmt_ratio_percent(scores.get("reversal_probability") if isinstance(scores, dict) else None))}
+          {signal_item("趋势衰竭", fmt_ratio_percent(scores.get("exhaustion_score") if isinstance(scores, dict) else None))}
+          {signal_item("恐慌释放", fmt_ratio_percent(scores.get("capitulation_score") if isinstance(scores, dict) else None))}
+          {signal_item("原始Decision", fmt_num(adjusted.get("original_decision_score") if isinstance(adjusted, dict) else None))}
+          {signal_item("解释后分", fmt_num(adjusted.get("risk_adjusted_score") if isinstance(adjusted, dict) else None))}
+          {signal_item("当前回撤", fmt_ratio_percent(evidence.get("current_drawdown") if isinstance(evidence, dict) else None))}
+          {signal_item("历史极值接近度", fmt_ratio_percent(evidence.get("extreme_proximity") if isinstance(evidence, dict) else None))}
+        </div>
+        <ul class="risk-list">{condition_items}</ul>
+        <p class="signal-note">{esc(adjusted.get("explanation") if isinstance(adjusted, dict) else "等待抄底概率模式输入。")}</p>
       </section>"""
 
 
@@ -2681,6 +2752,15 @@ def render_etf_page(code: str) -> bytes:
         if isinstance(health_payload.get("health_report"), dict)
         else {}
     )
+    contrarian_signal = contrarian_signal_from_inputs(
+        code=code,
+        market_context=market_context,
+        market_regime_v2=market_regime_v2,
+        market_structure=market_structure,
+        factor_exposure=factor_exposure,
+        governance_report=governance_report,
+        decision_signal=adaptive_decision_signal,
+    )
     common_ask_answers = build_common_ask_answers(
         code=code,
         decision_signal=adaptive_decision_signal,
@@ -2750,6 +2830,7 @@ def render_etf_page(code: str) -> bytes:
       {render_taxonomy_profile(taxonomy_profile)}
       {render_factor_exposure(factor_exposure)}
       {render_decision_signal(adaptive_decision_signal)}
+      {render_contrarian_signal(contrarian_signal)}
       {render_market_regime_v2(market_regime_v2, market_structure)}
       {render_market_context(market_context)}
       {render_valuation_chart(chart_runs, chart_prices)}
@@ -3188,8 +3269,62 @@ def decision_signal_payload_for_etf(code: str) -> dict[str, object]:
     }
 
 
+def contrarian_signal_payload_for_etf(code: str) -> dict[str, object]:
+    if not ETF_CODE_RE.match(code):
+        return {
+            "schema_version": "myinvestetf.contrarian_signal.v1",
+            "code": code,
+            "error": "invalid_etf_code",
+            "constraints": {"read_only": True, "research_only": True},
+        }
+    decision_payload = decision_signal_payload_for_etf(code)
+    if decision_payload.get("error"):
+        return {
+            "schema_version": "myinvestetf.contrarian_signal.v1",
+            "code": code,
+            "error": decision_payload.get("error"),
+            "constraints": decision_payload.get("constraints", {"read_only": True, "research_only": True}),
+        }
+    with closing(connect(DB_PATH)) as conn:
+        prices = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
+    market_context = market_context_from_prices(code, prices)
+    health_payload = research_health_payload()
+    governance_report = health_payload.get("health_report") if isinstance(health_payload.get("health_report"), dict) else {}
+    contrarian_signal = contrarian_signal_from_inputs(
+        code=code,
+        market_context=market_context,
+        market_regime_v2=decision_payload.get("regime_v2") if isinstance(decision_payload.get("regime_v2"), dict) else {},
+        market_structure=decision_payload.get("market_structure") if isinstance(decision_payload.get("market_structure"), dict) else {},
+        factor_exposure=decision_payload.get("factor_exposure") if isinstance(decision_payload.get("factor_exposure"), dict) else {},
+        governance_report=governance_report,
+        decision_signal=decision_payload.get("decision_signal") if isinstance(decision_payload.get("decision_signal"), dict) else {},
+    )
+    return {
+        "schema_version": "myinvestetf.contrarian_signal.v1",
+        "code": code,
+        "name": decision_payload.get("name"),
+        "market_context": market_context,
+        "regime_v2": decision_payload.get("regime_v2"),
+        "decision_signal": decision_payload.get("decision_signal"),
+        "contrarian_signal": contrarian_signal,
+        "constraints": {
+            "read_only": True,
+            "research_only": True,
+            "does_not_override_decision_score": True,
+            "contains_trade_orders": False,
+            "contains_cash_amounts": False,
+            "contains_share_counts": False,
+            "executes_rebalance": False,
+        },
+    }
+
+
 def api_score_for_etf(code: str) -> bytes:
     return json.dumps(decision_signal_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
+
+
+def api_contrarian_for_etf(code: str) -> bytes:
+    return json.dumps(contrarian_signal_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
 
 
 def api_ask_for_etf(code: str, query: str) -> bytes:
@@ -3726,6 +3861,10 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/decision/state/"):
             code = path.removeprefix("/api/decision/state/").upper()
             self.send_bytes(api_decision_state_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/strategy/contrarian/"):
+            code = path.removeprefix("/api/strategy/contrarian/").upper()
+            self.send_bytes(api_contrarian_for_etf(code), "application/json; charset=utf-8")
             return
         if path.startswith("/api/replay/") and path.endswith("/stability"):
             code = path.removeprefix("/api/replay/").removesuffix("/stability").strip("/").upper()

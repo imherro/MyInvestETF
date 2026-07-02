@@ -212,6 +212,30 @@ http://127.0.0.1:8017
 
 该接口只输出研究状态，不输出买卖动作、仓位、现金金额或份额数量。
 
+## `/api/strategy/contrarian/{etf}`
+
+用途：输出单只 ETF 的 Contrarian Mode 抄底概率模式。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.contrarian_signal.v1`
+- `market_context.drawdown`
+- `regime_v2`
+- `decision_signal.score`: 原始 Decision Score
+- `contrarian_signal.enabled`
+- `contrarian_signal.scores.reversal_probability`
+- `contrarian_signal.scores.exhaustion_score`
+- `contrarian_signal.scores.capitulation_score`
+- `contrarian_signal.conditions.drawdown_extreme`
+- `contrarian_signal.conditions.regime_stress`
+- `contrarian_signal.conditions.liquidity_stress`
+- `contrarian_signal.adjusted_interpretation.risk_adjusted_score`
+- `contrarian_signal.adjusted_interpretation.original_decision_score`
+- `contrarian_signal.adjusted_interpretation.final_view`: `probabilistic_bottom_zone`、`normal` 或 `not_active`
+- `contrarian_signal.constraints.does_not_override_decision_score`: `true`
+
+该接口只读，不写库、不写队列、不重算研究报告、不覆盖原始 Decision Score、不输出交易动作、现金金额或份额数量。
+
 ## `/api/replay/{etf}`
 
 用途：输出单只 ETF 的历史 DecisionSignal 回放报告。

@@ -13,6 +13,7 @@ MyInvestETF 为单只 ETF 提供研究页面和只读 API，展示：
 - 标准化因子暴露和 IC 摘要
 - 市场结构 breadth/liquidity/dispersion 和 Regime v2
 - Regime-aware 状态感知研究评分、动态权重和贡献拆解
+- Contrarian Mode 抄底概率模式和概率底部观察区解释
 - 历史 DecisionSignal 回放、稳定性指标和无未来函数校验
 - 研究治理健康度、数据质量、因子有效性、regime 稳定性和报告 gate
 - 流动性、份额变化和跟踪质量
@@ -34,9 +35,11 @@ flowchart LR
   F --> M["core/market + core/risk"]
   M --> S["MarketStructure + Regime v2"]
   S --> W["core/decision: DecisionSignal"]
+  W --> Y["core/strategy: ContrarianSignal"]
   M --> G["SQLite: etf_research_runs"]
   G --> H["8017 Web ETF 页"]
   W --> H
+  Y --> H
   W --> R["core/replay: Decision replay"]
   R --> H
   R --> Q["core/governance: Research health gates"]
@@ -56,6 +59,7 @@ flowchart LR
 - `core/market/`：根据 ETF 或底层指数行情判断 `risk_on`、`risk_off`、`shock`、`rotation`。
 - `core/market/structure.py`：市场结构层，当前用 ETF 池代理 breadth、liquidity 和 dispersion。
 - `core/decision/`：Regime-Aware Decision Engine，基于 Regime v2、taxonomy、factor exposure 和 valuation signal 输出研究评分、动态权重和状态机。
+- `core/strategy/`：Contrarian Mode 抄底概率模式，基于极端回撤、压力状态、流动性压力和治理可信度输出概率底部观察，不覆盖原始 Decision Score。
 - `core/replay/`：Decision Replay & Stability Engine，按 `as_of_date` 截断历史行情回放 DecisionSignal，并输出稳定性、regime path 和无未来函数校验。
 - `core/governance/`：Research Governance & Data Quality Layer，输出数据、因子、regime、报告和系统健康 gate。
 - `core/risk/`：根据 ETF 收盘价计算当前回撤、最大回撤、回撤分位、修复速度和持续天数。
@@ -78,6 +82,7 @@ flowchart LR
 - `/api/score/{etf}`：单只 ETF 状态感知研究评分。
 - `/api/score/decompose/{etf}`：单只 ETF 评分拆解。
 - `/api/decision/state/{etf}`：单只 ETF 状态机输出。
+- `/api/strategy/contrarian/{etf}`：单只 ETF 抄底概率模式。
 - `/api/replay/{etf}`：单只 ETF 历史评分回放。
 - `/api/replay/{etf}/stability`：单只 ETF 回放稳定性。
 - `/api/replay/{etf}/regime-path`：单只 ETF 历史 regime path。
