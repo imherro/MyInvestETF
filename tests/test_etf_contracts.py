@@ -34,7 +34,9 @@ from myinvestetf.web import (
     api_catalog,
     build_common_ask_answers,
     decision_matrix_summary,
+    defensive_factor_guidance,
     leader_to_summary,
+    market_signal_summary,
     openapi_json,
     portfolio_use_view,
     render_api_overview,
@@ -690,6 +692,41 @@ class ETFContractTests(unittest.TestCase):
         )
         self.assertIn("估值分位", html)
         self.assertIn("88.07%", html)
+
+    def test_defensive_factor_guidance_maps_regime_to_sleeve_band(self) -> None:
+        self.assertEqual(defensive_factor_guidance("risk_on")["band"], "2%-5%")
+        self.assertEqual(defensive_factor_guidance("rotation")["band"], "5%-8%")
+        self.assertEqual(defensive_factor_guidance("risk_off")["band"], "8%-12%")
+        self.assertEqual(defensive_factor_guidance("shock")["band"], "8%-12%")
+
+    def test_signal_matrix_shows_defensive_factor_sleeve_band(self) -> None:
+        valuation_signal = {
+            "source": "MyInvestETF deterministic valuation",
+            "valuation_model_type": "factor_defensive",
+            "valuation_model_label": "收益防御估值",
+            "sleeve_key": "defensive_quality",
+            "sleeve_label": "收益防御仓",
+            "bucket": "high",
+            "factor_premium_score": 55.0,
+            "drawdown_opportunity_score": 90.0,
+            "drawdown_opportunity_label": "当前回撤较深",
+            "liquidity_score": 100.0,
+            "tracking_score": 75.0,
+            "portfolio_role_score": 66.0,
+            "risk_adjusted_score": 58.0,
+        }
+        market_signal = market_signal_summary({"regime": "rotation", "confidence": 0.6, "structure": {}})
+        html = render_signal_matrix(
+            {"risk_flags": [], "applies": False},
+            valuation_signal,
+            {"posture": "收益防御候选", "conclusion": "测试"},
+            market_signal=market_signal,
+        )
+
+        self.assertIn("防御因子仓带", html)
+        self.assertIn("5%-8%", html)
+        self.assertIn("risk_on 靠近下沿 2%-5%", html)
+        self.assertIn("不是单只 ETF 比例", html)
 
     def test_valuation_chart_uses_price_language_and_explains_missing_close_line(self) -> None:
         runs = [

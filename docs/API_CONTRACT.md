@@ -44,7 +44,9 @@ http://127.0.0.1:8017
 - `etfs[].research.reference_value_history`
 - `etfs[].research.run_count`
 - `etfs[].market_context`: 市场状态和回撤上下文
+- `etfs[].regime_v2`: Regime v2 市场状态；`market_signal` 与页面决策矩阵使用该口径
 - `etfs[].market_signal`: market 研究/市场状态给出的仓位信号，适用于所有权益 ETF
+- `etfs[].market_signal.defensive_factor_guidance`: 防御因子仓组合层仓位带；`risk_on` 为 `2%-5%`，`rotation` 为 `5%-8%`，`risk_off/shock` 为 `8%-12%`
 - `etfs[].theme_signal`: theme 研究给出的行业主线信号，只适用于 `mainline_theme`
 - `etfs[].product_signal`: ETF 自身估值、流动性、跟踪和回撤机会信号
 - `etfs[].decision_matrix`: 按 ETF 类型组合 market/theme/product 的决策解释矩阵
@@ -94,7 +96,9 @@ http://127.0.0.1:8017
 - `leader_summary.sleeve_key`
 - `research_runs`: 研究历史，任务类型统一为 `research`
 - `market_context`: `regime` 与 `drawdown`，由本地日行情缓存计算
+- `regime_v2`: Regime v2 市场状态；`market_signal` 与页面决策矩阵使用该口径
 - `market_signal`: market 研究/市场状态仓位信号，适用于所有权益 ETF
+- `market_signal.defensive_factor_guidance`: 红利低波、自由现金流、质量因子等防御因子仓的组合层区间；这是仓位篮子口径，不是单只 ETF 比例
 - `theme_signal`: theme 研究行业主线信号，只适用于主线/行业/主题 ETF；宽基和收益防御策略 ETF 显示为不适用
 - `product_signal`: ETF 产品估值、流动性、跟踪质量、回撤机会和风险调整信号
 - `decision_matrix`: 按 ETF 类型组合 market/theme/product 的决策解释矩阵

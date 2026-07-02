@@ -243,4 +243,6 @@ Replay 必须按 `as_of_date` 截断本地价格序列。研究日之前没有�
 
 解释层按 ETF 类型使用不同上游信号：`market_signal` 代表 market 研究/市场状态给出的仓位口径，适用于所有权益 ETF；`theme_signal` 只代表 theme 研究的行业主线，只有 `mainline_theme` 使用它作为确认条件；`product_signal` 只描述 ETF 自身估值、流动性、跟踪质量、折溢价、回撤机会和风险调整。
 
+收益防御 ETF 还会使用 `market_signal.defensive_factor_guidance` 解释组合层防御因子仓位带：`risk_on` 靠近下沿 `2%-5%`，`rotation` 使用中位 `5%-8%`，`risk_off/shock` 靠近上沿 `8%-12%`。该字段是红利低波、自由现金流、质量因子等防御因子仓的整体区间，不是单只 ETF 的买入比例。
+
 现金替代类 ETF 默认不进入深度研究队列；如生成监控型报告，也只能用于现金替代资格检查。

@@ -131,6 +131,28 @@ SLEEVE_LABELS = {
     "cash_like": "现金替代仓",
 }
 
+DEFENSIVE_FACTOR_BAND_BY_REGIME = {
+    "risk_on": ("2%-5%", "靠近下沿"),
+    "rotation": ("5%-8%", "中位配置"),
+    "risk_off": ("8%-12%", "靠近上沿"),
+    "shock": ("8%-12%", "靠近上沿"),
+}
+
+
+def defensive_factor_guidance(regime: object) -> dict[str, str]:
+    regime_key = str(regime or "")
+    band, stance = DEFENSIVE_FACTOR_BAND_BY_REGIME.get(regime_key, ("2%-12%", "等待market状态确认"))
+    return {
+        "band": band,
+        "stance": stance,
+        "regime": regime_key or "unknown",
+        "mapping": "risk_on 靠近下沿 2%-5%；rotation 中位 5%-8%；risk_off/shock 靠近上沿 8%-12%",
+        "explanation": (
+            f"当前 market 状态为 {REGIME_LABELS.get(regime_key, regime_key or '待入库')}，"
+            f"防御因子仓参考 {band}（{stance}）。这是组合层防御因子仓区间，不是单只 ETF 比例。"
+        ),
+    }
+
 
 def leader_model_info(row: object | None) -> dict[str, object]:
     if row is None:
@@ -533,6 +555,7 @@ def market_signal_summary(
         "breadth_score": structure.get("breadth_score") or evidence.get("breadth_score"),
         "liquidity_score": structure.get("liquidity_score") or evidence.get("liquidity_score"),
         "price_trend_score": structure.get("price_trend_score") or evidence.get("price_trend_score"),
+        "defensive_factor_guidance": defensive_factor_guidance(regime),
         "explanation": (
             f"市场状态 {REGIME_LABELS.get(regime, regime or '待入库')}，"
             f"建议仓位口径：{suggested_position}。"
@@ -1445,7 +1468,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
                     "/api/etfs/{code}",
                     "返回单只 ETF 的 leader、taxonomy、研究运行、市场/主题/产品信号、决策矩阵、队列状态和历史记录。",
                     [{"name": "code", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
-                    "leader_summary、taxonomy_profile、research_runs、market_signal、theme_signal、product_signal、decision_matrix、queue、trackable_history。",
+                    "leader_summary、taxonomy_profile、research_runs、regime_v2、market_signal.defensive_factor_guidance、theme_signal、product_signal、decision_matrix、queue、trackable_history。",
                     True,
                 ),
                 _api_endpoint(
@@ -1462,7 +1485,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             "name": "分析结果",
             "description": "当前完整深研结果、类型化估值输出和因子分析。",
             "endpoints": [
-                _api_endpoint("GET", "/api/latest", "对外研究成果接口，汇总所有 ETF 的最新深研、参考价格历史、市场/主题/产品信号和类型化决策矩阵。", [], "myinvestetf.research.v2 JSON。", True),
+                _api_endpoint("GET", "/api/latest", "对外研究成果接口，汇总所有 ETF 的最新深研、参考价格历史、Regime v2、市场/主题/产品信号和类型化决策矩阵。", [], "myinvestetf.research.v2 JSON；包含 etfs[].regime_v2 与 etfs[].market_signal.defensive_factor_guidance。", True),
                 _api_endpoint(
                     "GET",
                     "/api/factors/{etf}",
@@ -2823,6 +2846,9 @@ def render_signal_matrix(
             f"{fmt_num(valuation_range.get('high'))}"
         )
     model_type = str(valuation_signal.get("valuation_model_type") or "")
+    defensive_guidance = market_signal.get("defensive_factor_guidance")
+    defensive_guidance = defensive_guidance if isinstance(defensive_guidance, dict) else defensive_factor_guidance(market_signal.get("regime"))
+    defensive_guidance_html = ""
     if model_type == "mainline_theme":
         model_specific_items = (
             signal_item("主线有效性", fmt_num(valuation_signal.get("mainline_validity_score")))
@@ -2833,6 +2859,11 @@ def render_signal_matrix(
         model_specific_items = (
             signal_item("防御因子溢价", fmt_num(valuation_signal.get("factor_premium_score")))
             + signal_item("深回撤机会", fmt_num(valuation_signal.get("drawdown_opportunity_score")), valuation_signal.get("drawdown_opportunity_label"))
+            + signal_item("防御因子仓带", defensive_guidance.get("band"), defensive_guidance.get("stance"))
+        )
+        defensive_guidance_html = (
+            f"""<p class="signal-note">防御因子仓位口径：{esc(defensive_guidance.get("mapping"))}。</p>
+            <p class="signal-note">{esc(defensive_guidance.get("explanation"))}</p>"""
         )
     elif model_type == "cash_like":
         model_specific_items = signal_item("现金替代安全", fmt_num(valuation_signal.get("cash_like_safety_score")))
@@ -2885,6 +2916,7 @@ def render_signal_matrix(
               {signal_item("风险调整", fmt_num(valuation_signal.get("risk_adjusted_score")))}
             </div>
             <p class="signal-note">ETF模型原始标签：{esc(valuation_signal.get("raw_grade") or "待入库")}</p>
+            {defensive_guidance_html}
           </div>
           <div class="matrix-conclusion">
             <span>矩阵结论</span>
@@ -3248,6 +3280,7 @@ def api_latest() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         report = latest_report(conn)
         leaders = list_latest_leaders(conn)
+        market_structure_obj, _market_structure, _universe_prices, _taxonomy_by_code = market_structure_from_connection(conn)
         etfs = []
         research_run_count = 0
         complete_research_count = 0
@@ -3256,6 +3289,7 @@ def api_latest() -> bytes:
             reference_runs_for_etf = valuation_runs(conn, leader["code"])
             context_prices = list_daily_prices(conn, leader["code"], start_date=BULL_MARKET_START_DATE)
             market_context = market_context_from_prices(leader["code"], context_prices)
+            regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(str(leader["code"]), context_prices, market_structure_obj))
             research_run_count += len(runs)
             complete_research_count += len(reference_runs_for_etf)
             latest = latest_research_run(runs)
@@ -3265,9 +3299,9 @@ def api_latest() -> bytes:
             latest_valuation_signal = valuation_signal_with_drawdown_context(
                 latest_valuation_signal,
                 taxonomy_profile,
-                {"evidence": {"current_drawdown": (market_context.get("drawdown") or {}).get("current_drawdown") if isinstance(market_context.get("drawdown"), dict) else None}},
+                regime_v2,
             )
-            latest_market_signal = market_signal_summary(market_context=market_context)
+            latest_market_signal = market_signal_summary(regime_v2, market_context)
             latest_product_signal = product_signal_summary(latest_valuation_signal)
             decision_matrix = decision_matrix_summary(
                 leader_summary["upstream_signal"],
@@ -3286,6 +3320,7 @@ def api_latest() -> bytes:
                     },
                     "taxonomy_profile": taxonomy_profile,
                     "market_context": market_context,
+                    "regime_v2": regime_v2,
                     "market_signal": latest_market_signal,
                     "theme_signal": leader_summary["upstream_signal"],
                     "product_signal": latest_product_signal,
@@ -3319,18 +3354,20 @@ def api_etf(code: str) -> bytes:
         queue = rows_to_dicts(list_queue_for_etf(conn, code))
         trackable = rows_to_dicts(list_trackable_history(conn, code))
         context_prices = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
+        market_structure_obj, _market_structure, _universe_prices, _taxonomy_by_code = market_structure_from_connection(conn)
     for row in queue:
         row["source_label"] = queue_source_label(row.get("source_type"))
     leader_summary = leader_to_summary(leader) if leader else None
     latest = next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)
     taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest)
     market_context = market_context_from_prices(code, context_prices)
+    regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(code, context_prices, market_structure_obj))
     current_valuation_signal = valuation_signal_with_drawdown_context(
         valuation_signal_summary(latest) if latest else valuation_signal_summary(None),
         taxonomy_profile,
-        {"evidence": {"current_drawdown": (market_context.get("drawdown") or {}).get("current_drawdown") if isinstance(market_context.get("drawdown"), dict) else None}},
+        regime_v2,
     )
-    current_market_signal = market_signal_summary(market_context=market_context)
+    current_market_signal = market_signal_summary(regime_v2, market_context)
     current_product_signal = product_signal_summary(current_valuation_signal)
     decision_matrix = decision_matrix_summary(
         leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
@@ -3350,6 +3387,7 @@ def api_etf(code: str) -> bytes:
             "research_runs": runs,
             "taxonomy_profile": taxonomy_profile,
             "market_context": market_context,
+            "regime_v2": regime_v2,
             "valuation_signal": current_valuation_signal,
             "decision_matrix": decision_matrix,
             "queue": queue,
