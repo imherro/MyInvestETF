@@ -1625,7 +1625,7 @@ def render_home() -> bytes:
       <div class="section-heading-row">
         <div>
           <h2>收益防御ETF</h2>
-          <p class="muted">固定纳入自由现金流和红利低波代表，使用收益防御估值逻辑，不从主线强度推导。</p>
+          <p class="muted">纳入自由现金流和红利低波收益防御代表；自由现金流当前使用 159201.SZ，按收益防御估值逻辑研究，不从主线强度推导。</p>
         </div>
         <span class="section-count">{esc(len(defensive_leaders))} 只</span>
       </div>

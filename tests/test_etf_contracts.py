@@ -208,11 +208,11 @@ class ETFContractTests(unittest.TestCase):
         representatives = research_representatives(items, payload)
         self.assertIn("515050.SH", {item["code"] for item in items})
         self.assertIn("510300.SH", {item["code"] for item in items})
-        self.assertIn("159399.SZ", {item["code"] for item in items})
+        self.assertIn("159201.SZ", {item["code"] for item in items})
         self.assertIn("512890.SH", {item["code"] for item in items})
         self.assertIn("159516.SZ", [item["code"] for item in representatives])
         self.assertIn("515050.SH", [item["code"] for item in representatives])
-        self.assertIn("159399.SZ", [item["code"] for item in representatives])
+        self.assertIn("159201.SZ", [item["code"] for item in representatives])
         self.assertIn("512890.SH", [item["code"] for item in representatives])
 
     def test_core_broad_index_seeds_are_research_representatives(self) -> None:
@@ -245,7 +245,7 @@ class ETFContractTests(unittest.TestCase):
         representatives = research_representatives(primary_items(payload), payload)
         by_code = {item["code"]: item for item in representatives}
         expected = {
-            "159399.SZ": "自由现金流",
+            "159201.SZ": "自由现金流",
             "512890.SH": "红利低波",
         }
         for code, category in expected.items():
@@ -444,15 +444,15 @@ class ETFContractTests(unittest.TestCase):
                 source_by_code = {row["code"]: row["source_type"] for row in queue}
                 priority_by_code = {row["code"]: row["priority"] for row in queue}
             self.assertIn("159516.SZ", queue_codes)
-            self.assertIn("159399.SZ", queue_codes)
+            self.assertIn("159201.SZ", queue_codes)
             self.assertIn("512890.SH", queue_codes)
             self.assertNotIn("588200.SH", queue_codes)
             self.assertEqual(source_by_code["159516.SZ"], QUEUE_SOURCE_MAINLINE)
             self.assertEqual(source_by_code["510300.SH"], QUEUE_SOURCE_BROAD_INDEX)
-            self.assertEqual(source_by_code["159399.SZ"], QUEUE_SOURCE_DEFENSIVE)
+            self.assertEqual(source_by_code["159201.SZ"], QUEUE_SOURCE_DEFENSIVE)
             self.assertEqual(source_by_code["512890.SH"], QUEUE_SOURCE_DEFENSIVE)
             self.assertLess(priority_by_code["510300.SH"], priority_by_code["159516.SZ"])
-            self.assertLess(priority_by_code["159399.SZ"], priority_by_code["159516.SZ"])
+            self.assertLess(priority_by_code["159201.SZ"], priority_by_code["159516.SZ"])
             self.assertLess(priority_by_code["512890.SH"], priority_by_code["159516.SZ"])
 
     def test_requested_prompts_do_not_require_api_index_membership(self) -> None:

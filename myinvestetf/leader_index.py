@@ -114,8 +114,8 @@ BROAD_INDEX_CATEGORY_KEYS = {item["category_key"] for item in BROAD_INDEX_SEED_E
 BROAD_INDEX_CATEGORY_ORDER = {item["category_key"]: index for index, item in enumerate(BROAD_INDEX_SEED_ETFS)}
 DEFENSIVE_SEED_ETFS: tuple[dict[str, Any], ...] = (
     {
-        "code": "159399.SZ",
-        "name": "国泰富时中国A股自由现金流聚焦ETF",
+        "code": "159201.SZ",
+        "name": "华夏国证自由现金流ETF",
         "theme": "自由现金流收益防御",
         "category_key": "自由现金流",
     },
@@ -516,7 +516,7 @@ def _normalize_defensive_seed_item(seed: dict[str, Any]) -> dict[str, Any]:
             "deep_score": score,
             "shadow_observation_eligible": True,
             "candidate_leader_tier": "收益防御",
-            "candidate_leader_claim": "本地收益防御 ETF 种子，用于强制纳入自由现金流和红利低波研究对象",
+            "candidate_leader_claim": "本地收益防御 ETF 种子，用于纳入自由现金流和红利低波研究对象",
             "candidate_evidence_score": score,
             "candidate_evidence_count": 1,
             "candidate_hard_evidence_count": 1,
