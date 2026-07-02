@@ -263,6 +263,78 @@ http://127.0.0.1:8017
 - `regime_transition_matrix`
 - `validation.no_future_data`
 
+## `/api/health/system`
+
+用途：输出系统级研究可信度健康报告。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.research_health.v1`
+- `replay_reference_etf`
+- `health_report.data_quality`
+- `health_report.factor_quality`
+- `health_report.regime_quality`
+- `health_report.report_quality`
+- `health_report.system_health_score`
+- `health_report.gate_status`: `pass`、`warn` 或 `reject`
+
+健康报告只读；因子 IC 健康检查使用代表性采样，并使用 120 秒短 TTL 缓存。
+
+## `/api/health/data`
+
+用途：输出数据完整性 gate。
+
+关键字段：
+
+- `data_quality.completeness_score`
+- `data_quality.missing_data_ratio`
+- `data_quality.stale_data_ratio`
+- `data_quality.alignment_score`
+- `data_quality.coverage_score`
+- `data_quality.missing_fields`
+- `data_quality.stale_items`
+- `data_quality.gate_status`
+
+## `/api/health/factors`
+
+用途：输出因子有效性 gate。
+
+关键字段：
+
+- `factor_quality.ic_validity_score`
+- `factor_quality.factor_coverage_score`
+- `factor_quality.unstable_factors`
+- `factor_quality.redundant_factors`
+- `factor_quality.ic_decay_alerts`
+- `factor_quality.gate_status`
+
+## `/api/health/regime`
+
+用途：输出 regime 稳定性 gate。
+
+关键字段：
+
+- `regime_quality.stability_score`
+- `regime_quality.flip_rate`
+- `regime_quality.smoothed_flip_rate`
+- `regime_quality.regime_entropy`
+- `regime_quality.confirmation_score`
+- `regime_quality.overfit_warning`
+- `regime_quality.gate_status`
+
+## `/api/health/report`
+
+用途：输出研究报告质量 gate。
+
+关键字段：
+
+- `report_quality.completeness`
+- `report_quality.consistency`
+- `report_quality.leakage_risk`
+- `report_quality.interpretability`
+- `report_quality.rejection_reasons`
+- `report_quality.gate_status`
+
 ## `/api/market/structure`
 
 用途：输出市场结构层。

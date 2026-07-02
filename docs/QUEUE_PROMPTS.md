@@ -81,6 +81,7 @@ factor exposure 与 IC 由 `core/factors` 根据本地行情计算；LLM 只提�
 MarketStructure 与 Regime v2 由系统根据 ETF 池行情、taxonomy 和流动性代理生成；LLM 不手写 breadth、liquidity contribution 或 confirmation_level。
 DecisionSignal 由 `core/decision` 根据 Regime v2、taxonomy、factor exposure 和 valuation signal 生成；LLM 不手写最终 score、动态权重、factor_contributions 或 state_code。
 ReplayReport 由 `core/replay` 根据本地历史行情按 `as_of_date` 截断生成；LLM 不手写历史 score_series、regime path、stability metrics 或无未来函数校验。
+ResearchHealthReport 由 `core/governance` 根据本地数据、因子 IC、regime replay 和研究报告字段生成；LLM 不手写 health score、gate_status 或 rejection_reasons。
 
 ## 类型化研究依据
 

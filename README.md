@@ -28,6 +28,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，但仍不改最终评分。
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
 - 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
+- 研究治理由 `core/governance` 生成，输出数据完整性、因子有效性、regime 稳定性、报告质量和系统健康分，用来判断研究结果是否可信、是否应被 gate 阻断。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
 - 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
@@ -72,6 +73,7 @@ myinvestetf/web.py
   /api/score         单只 ETF 状态感知研究评分
   /api/decision      单只 ETF 状态机输出
   /api/replay        单只 ETF 历史评分回放
+  /api/health        系统研究健康度与治理 gate
   /api/queue         本地队列
 ```
 
@@ -178,6 +180,17 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 - `consistency_score`: 综合稳定性评分。
 
 没有历史估值信号的日期不会复用最新估值，而使用中性估值输入，并在 `validation.valuation_policy` 中说明。该层只做回放验证，不输出交易动作或仓位。
+
+## 研究治理与健康度
+
+`core/governance` 提供 Research Governance & Data Quality Layer，用来让系统判断“当前研究输出是否可信”。它聚合四类 gate：
+
+- `data_quality`: 数据完整性、缺失率、陈旧率、日期对齐和价格覆盖率。
+- `factor_quality`: IC 有效性、IC 衰减、因子不稳定和因子冗余。
+- `regime_quality`: regime flip rate、entropy、confirmation score、过敏警告和稳定性评分。
+- `report_quality`: 研究报告完整性、一致性、泄漏风险和可解释性。
+
+最终输出 `system_health_score` 和 `gate_status`：`pass`、`warn` 或 `reject`。`reject` 表示系统可以识别并阻断低质量研究输出。健康接口为只读；因子 IC 健康检查使用代表性采样，并使用 120 秒短 TTL 缓存，避免每次请求全量重算。
 
 ## 完整深研任务
 
@@ -299,6 +312,11 @@ python -m pytest tests -q
 - `/api/replay/{etf}`：单只 ETF 历史 DecisionSignal 回放报告。
 - `/api/replay/{etf}/stability`：单只 ETF 回放稳定性指标。
 - `/api/replay/{etf}/regime-path`：单只 ETF 历史 regime path 和状态切换矩阵。
+- `/api/health/system`：系统级研究可信度健康报告。
+- `/api/health/data`：数据完整性、陈旧度、对齐和覆盖检查。
+- `/api/health/factors`：因子 IC 有效性、衰减和冗余检查。
+- `/api/health/regime`：regime 稳定性、过敏和确认度检查。
+- `/api/health/report`：研究报告完整性、一致性、泄漏风险和可解释性 gate。
 - `/api/market/structure`：市场结构层。
 - `/api/market/breadth`：市场宽度摘要。
 - `/api/market/liquidity`：流动性结构摘要。

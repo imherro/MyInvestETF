@@ -4,6 +4,7 @@ import html
 import json
 import mimetypes
 import re
+import time
 from contextlib import closing
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -14,12 +15,21 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from core.decision import build_decision_signal, decision_signal_to_dict
 from core.factors import (
+    DEFAULT_FACTOR_REGISTRY,
     build_factor_exposure,
     compute_factor_ic,
     factor_definition_to_dict,
     factor_exposure_to_dict,
     factor_ic_summary_to_dict,
     get_factor_definition,
+)
+from core.governance import (
+    build_data_quality_report,
+    build_factor_quality_report,
+    build_regime_quality_report,
+    build_report_quality_report,
+    build_research_health_report,
+    research_health_report_to_dict,
 )
 from core.market import (
     build_market_context,
@@ -57,6 +67,8 @@ BULL_MARKET_START_DATE = "2024-09-24"
 SYSTEM_NAME = "MyInvestETF"
 SYSTEM_VERSION = "0.1.0"
 SYSTEM_DESCRIPTION = "ETF 研究、类型化估值、研究队列和只读 Web 展示系统。"
+HEALTH_CACHE_TTL_SECONDS = 120.0
+_HEALTH_CACHE: dict[str, object] = {"created_at": 0.0, "payload": None}
 
 
 def esc(value: object) -> str:
@@ -1045,9 +1057,14 @@ def api_catalog(base_url: str) -> dict[str, object]:
         },
         {
             "name": "系统状态",
-            "description": "本地研究队列和任务状态。",
+            "description": "本地研究队列、任务状态和研究健康度。",
             "endpoints": [
                 _api_endpoint("GET", "/api/queue", "返回本地 ETF 深研队列。", [], "items 队列数组。", True),
+                _api_endpoint("GET", "/api/health/system", "返回系统级研究可信度健康报告。", [], "ResearchHealthReport JSON。", True),
+                _api_endpoint("GET", "/api/health/data", "返回数据完整性、陈旧度、对齐和覆盖率检查。", [], "data_quality JSON。", True),
+                _api_endpoint("GET", "/api/health/factors", "返回因子 IC 有效性、衰减和冗余检查。", [], "factor_quality JSON。", True),
+                _api_endpoint("GET", "/api/health/regime", "返回 regime 稳定性、过敏和确认度检查。", [], "regime_quality JSON。", True),
+                _api_endpoint("GET", "/api/health/report", "返回研究报告完整性、一致性、泄漏风险和可解释性 gate。", [], "report_quality JSON。", True),
             ],
         },
     ]
@@ -1074,6 +1091,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/factors/{etf}", "reason": "读取单只 ETF 标准化因子暴露。"},
             {"path": "/api/score/{etf}", "reason": "读取单只 ETF 状态感知研究评分。"},
             {"path": "/api/replay/{etf}", "reason": "读取单只 ETF 历史评分回放和稳定性验证。"},
+            {"path": "/api/health/system", "reason": "读取系统研究可信度总览。"},
             {"path": "/api/market/regime-v2", "reason": "读取结构驱动市场状态。"},
         ],
         "safety": {
@@ -2946,6 +2964,171 @@ def api_replay_regime_path_for_etf(code: str) -> bytes:
     return json.dumps(regime_payload, ensure_ascii=False).encode("utf-8")
 
 
+def _health_replay_code(codes: list[str]) -> str | None:
+    for preferred in ["510300.SH", "510210.SH", "510050.SH"]:
+        if preferred in codes:
+            return preferred
+    return codes[0] if codes else None
+
+
+def _sample_price_series_for_health(
+    price_series_by_code: dict[str, list[object]],
+    *,
+    required_code: str | None,
+    max_codes: int = 8,
+    max_rows: int = 120,
+) -> dict[str, list[object]]:
+    selected: list[str] = []
+    if required_code and required_code in price_series_by_code:
+        selected.append(required_code)
+    for code in price_series_by_code:
+        if code not in selected:
+            selected.append(code)
+        if len(selected) >= max_codes:
+            break
+    return {code: list(price_series_by_code.get(code, []))[-max_rows:] for code in selected}
+
+
+def research_health_payload() -> dict[str, object]:
+    cached_at = _num(_HEALTH_CACHE.get("created_at")) or 0.0
+    cached_payload = _HEALTH_CACHE.get("payload")
+    if isinstance(cached_payload, dict) and time.time() - cached_at < HEALTH_CACHE_TTL_SECONDS:
+        return cached_payload
+    with closing(connect(DB_PATH)) as conn:
+        leaders = list_latest_leaders(conn)
+        price_series_by_code = {
+            str(row["code"]): list_daily_prices(conn, str(row["code"]), start_date=BULL_MARKET_START_DATE)
+            for row in leaders
+        }
+        taxonomy_by_code = {
+            str(row["code"]): taxonomy_profile_from_sources(code=str(row["code"]), leader=row)
+            for row in leaders
+        }
+        runs_by_code = {
+            str(row["code"]): rows_to_dicts(list_research_runs(conn, str(row["code"])))
+            for row in leaders
+        }
+        leader_by_code = {str(row["code"]): row for row in leaders}
+    codes = list(price_series_by_code)
+    replay_code = _health_replay_code(codes)
+    ic_price_series_by_code = _sample_price_series_for_health(price_series_by_code, required_code=replay_code)
+    data_quality = build_data_quality_report(price_series_by_code, min_observations=45)
+    factor_exposures_by_code = {
+        code: factor_exposure_from_prices(code, prices, taxonomy_by_code.get(code))
+        for code, prices in price_series_by_code.items()
+    }
+    ic_summaries_by_factor = {
+        definition.name: [factor_ic_summary_to_dict(item) for item in compute_factor_ic(definition, ic_price_series_by_code)]
+        for definition in DEFAULT_FACTOR_REGISTRY
+    }
+    factor_quality = build_factor_quality_report(ic_summaries_by_factor, factor_exposures_by_code)
+    structure = build_market_structure(price_series_by_code, taxonomy_by_code)
+    current_regimes = [
+        market_regime_v2_to_dict(build_market_regime_v2(code, prices, structure))
+        for code, prices in price_series_by_code.items()
+    ]
+    replay_stability: dict[str, object] = {}
+    if replay_code is not None:
+        replay_runs = runs_by_code.get(replay_code, [])
+        replay_latest = next((row for row in replay_runs if row.get("task_type") == "research"), replay_runs[0] if replay_runs else None)
+        replay_valuation = valuation_signal_summary(replay_latest) if replay_latest else valuation_signal_summary(None)
+        if replay_valuation.get("valuation_model_type") is None:
+            replay_valuation.update(leader_model_info(leader_by_code.get(replay_code)))
+        replay_report = replay_report_to_dict(
+            build_replay_report(
+                etf_code=replay_code,
+                price_series_by_code=price_series_by_code,
+                taxonomy_by_code=taxonomy_by_code,
+                valuation_signal=replay_valuation,
+                valuation_as_of_date=str((replay_latest or {}).get("research_date") or "") or None,
+                min_observations=45,
+                max_points=24,
+            )
+        )
+        replay_stability = replay_report.get("stability", {}) if isinstance(replay_report.get("stability"), dict) else {}
+    regime_quality = build_regime_quality_report(replay_stability, current_regimes)
+    latest_runs = [
+        latest
+        for runs in runs_by_code.values()
+        if (latest := next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)) is not None
+    ]
+    report_quality = build_report_quality_report(latest_runs)
+    health = research_health_report_to_dict(
+        build_research_health_report(
+            data_quality=data_quality,
+            factor_quality=factor_quality,
+            regime_quality=regime_quality,
+            report_quality=report_quality,
+        )
+    )
+    payload = {
+        "schema_version": "myinvestetf.research_health.v1",
+        "replay_reference_etf": replay_code,
+        "health_report": health,
+        "constraints": health.get("constraints", {"read_only": True}),
+    }
+    _HEALTH_CACHE["created_at"] = time.time()
+    _HEALTH_CACHE["payload"] = payload
+    return payload
+
+
+def api_health_system() -> bytes:
+    return json.dumps(research_health_payload(), ensure_ascii=False).encode("utf-8")
+
+
+def api_health_data() -> bytes:
+    payload = research_health_payload()
+    report = payload.get("health_report") if isinstance(payload.get("health_report"), dict) else {}
+    return json.dumps(
+        {
+            "schema_version": "myinvestetf.health_data.v1",
+            "data_quality": report.get("data_quality") if isinstance(report, dict) else {},
+            "constraints": payload.get("constraints", {"read_only": True}),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def api_health_factors() -> bytes:
+    payload = research_health_payload()
+    report = payload.get("health_report") if isinstance(payload.get("health_report"), dict) else {}
+    return json.dumps(
+        {
+            "schema_version": "myinvestetf.health_factors.v1",
+            "factor_quality": report.get("factor_quality") if isinstance(report, dict) else {},
+            "constraints": payload.get("constraints", {"read_only": True}),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def api_health_regime() -> bytes:
+    payload = research_health_payload()
+    report = payload.get("health_report") if isinstance(payload.get("health_report"), dict) else {}
+    return json.dumps(
+        {
+            "schema_version": "myinvestetf.health_regime.v1",
+            "regime_quality": report.get("regime_quality") if isinstance(report, dict) else {},
+            "replay_reference_etf": payload.get("replay_reference_etf"),
+            "constraints": payload.get("constraints", {"read_only": True}),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def api_health_report() -> bytes:
+    payload = research_health_payload()
+    report = payload.get("health_report") if isinstance(payload.get("health_report"), dict) else {}
+    return json.dumps(
+        {
+            "schema_version": "myinvestetf.health_report.v1",
+            "report_quality": report.get("report_quality") if isinstance(report, dict) else {},
+            "constraints": payload.get("constraints", {"read_only": True}),
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
 def api_queue() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         rows = rows_to_dicts(list_queue(conn))
@@ -3090,6 +3273,21 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/queue":
             self.send_bytes(api_queue(), "application/json; charset=utf-8")
+            return
+        if path == "/api/health/system":
+            self.send_bytes(api_health_system(), "application/json; charset=utf-8")
+            return
+        if path == "/api/health/data":
+            self.send_bytes(api_health_data(), "application/json; charset=utf-8")
+            return
+        if path == "/api/health/factors":
+            self.send_bytes(api_health_factors(), "application/json; charset=utf-8")
+            return
+        if path == "/api/health/regime":
+            self.send_bytes(api_health_regime(), "application/json; charset=utf-8")
+            return
+        if path == "/api/health/report":
+            self.send_bytes(api_health_report(), "application/json; charset=utf-8")
             return
         if path == "/api/market/structure":
             self.send_bytes(api_market_structure(), "application/json; charset=utf-8")

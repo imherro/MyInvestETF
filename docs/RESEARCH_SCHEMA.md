@@ -164,6 +164,32 @@ Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 
 
 Replay 必须按 `as_of_date` 截断本地价格序列。研究日之前没有历史估值信号时，使用中性估值输入，不能复用最新估值分数。
 
+## Research Health Output
+
+研究治理健康报告不写入 `ETFResearchReport` 强 schema，当前通过 `/api/health/*` 输出。字段包括：
+
+- `data_quality.completeness_score`
+- `data_quality.missing_data_ratio`
+- `data_quality.stale_data_ratio`
+- `data_quality.alignment_score`
+- `data_quality.coverage_score`
+- `factor_quality.ic_validity_score`
+- `factor_quality.unstable_factors`
+- `factor_quality.redundant_factors`
+- `factor_quality.ic_decay_alerts`
+- `regime_quality.stability_score`
+- `regime_quality.flip_rate`
+- `regime_quality.smoothed_flip_rate`
+- `regime_quality.overfit_warning`
+- `report_quality.completeness`
+- `report_quality.consistency`
+- `report_quality.leakage_risk`
+- `report_quality.rejection_reasons`
+- `system_health_score`
+- `gate_status`: `pass`、`warn` 或 `reject`
+
+当 gate 为 `reject` 时，系统应把对应研究输出视为低可信度结果，不作为对外发布或自动化后续任务的可靠输入。
+
 `model_specific_inputs` 按类型分流：
 
 - `broad_index`: `equity_risk_premium`, `roe`, `market_position_score`
