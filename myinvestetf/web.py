@@ -31,6 +31,7 @@ from core.governance import (
     build_research_health_report,
     research_health_report_to_dict,
 )
+from core.interpreter import DecisionInterpreter
 from core.market import (
     build_market_context,
     build_market_regime_v2,
@@ -1066,6 +1067,17 @@ def api_catalog(base_url: str) -> dict[str, object]:
                 ),
                 _api_endpoint(
                     "GET",
+                    "/api/ask/{etf}",
+                    "对单只 ETF 的自然语言问题做只读决策解释，最终回答统一由 AnswerPolicyEngine 生成。",
+                    [
+                        {"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"},
+                        {"name": "q", "in": "query", "required": False, "description": "自然语言问题，例如 现在能不能参与？"},
+                    ],
+                    "intent、decision、regime、final_answer、risk。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
                     "/api/score/decompose/{etf}",
                     "返回单只 ETF 的评分组件、动态权重和贡献拆解。",
                     [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
@@ -1145,6 +1157,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/etf/{code}/profile", "reason": "读取单只 ETF taxonomy profile。"},
             {"path": "/api/factors/{etf}", "reason": "读取单只 ETF 标准化因子暴露。"},
             {"path": "/api/score/{etf}", "reason": "读取单只 ETF 状态感知研究评分。"},
+            {"path": "/api/ask/{etf}", "reason": "按问题读取统一策略层生成的 ETF 决策解释。"},
             {"path": "/api/replay/{etf}", "reason": "读取单只 ETF 历史评分回放和稳定性验证。"},
             {"path": "/api/health/system", "reason": "读取系统研究可信度总览。"},
             {"path": "/api/market/regime-v2", "reason": "读取结构驱动市场状态。"},
@@ -2891,6 +2904,59 @@ def api_score_for_etf(code: str) -> bytes:
     return json.dumps(decision_signal_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
 
 
+def api_ask_for_etf(code: str, query: str) -> bytes:
+    params = parse_qs(query)
+    question = str((params.get("q") or [""])[0] or "")
+    payload = decision_signal_payload_for_etf(code)
+    if payload.get("error"):
+        response = {
+            "schema_version": "myinvestetf.ask.v1",
+            "code": code,
+            "question": question,
+            "error": payload.get("error"),
+            "constraints": payload.get("constraints", {"read_only": True, "research_only": True}),
+        }
+        return json.dumps(response, ensure_ascii=False).encode("utf-8")
+
+    health_payload = research_health_payload()
+    governance_report = (
+        health_payload.get("health_report")
+        if isinstance(health_payload.get("health_report"), dict)
+        else {}
+    )
+    interpretation = DecisionInterpreter().interpret(
+        code,
+        question,
+        decision_signal=payload.get("decision_signal"),
+        taxonomy_profile=payload.get("taxonomy_profile"),
+        market_regime=payload.get("regime_v2"),
+        governance_report=governance_report,
+    )
+    response = {
+        "schema_version": "myinvestetf.ask.v1",
+        "code": code,
+        "name": payload.get("name"),
+        "question": question,
+        "intent": interpretation["intent"],
+        "decision": interpretation["decision"],
+        "regime": interpretation["regime"],
+        "taxonomy": interpretation["taxonomy"],
+        "final_answer": interpretation["final_answer"],
+        "risk": interpretation["risk"],
+        "explanation": interpretation["explanation"],
+        "constraints": {
+            "read_only": True,
+            "research_only": True,
+            "no_trade_orders": True,
+            "contains_cash_amounts": False,
+            "contains_share_counts": False,
+            "executes_rebalance": False,
+            "final_answer_policy": "AnswerPolicyEngine",
+        },
+    }
+    return json.dumps(response, ensure_ascii=False).encode("utf-8")
+
+
 def api_score_decompose_for_etf(code: str) -> bytes:
     payload = decision_signal_payload_for_etf(code)
     signal = payload.get("decision_signal") if isinstance(payload.get("decision_signal"), dict) else {}
@@ -3364,6 +3430,10 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/score/"):
             code = path.removeprefix("/api/score/").upper()
             self.send_bytes(api_score_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/ask/"):
+            code = path.removeprefix("/api/ask/").upper()
+            self.send_bytes(api_ask_for_etf(code, parsed.query), "application/json; charset=utf-8")
             return
         if path.startswith("/api/decision/state/"):
             code = path.removeprefix("/api/decision/state/").upper()

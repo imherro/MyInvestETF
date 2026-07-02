@@ -58,7 +58,8 @@ class DecisionInterpreterTests(unittest.TestCase):
         self.assertEqual(result["intent"]["focus"], "timing")
         self.assertEqual(result["decision"]["band"], "high")
         self.assertEqual(result["decision"]["directional_bias"], "bullish")
-        self.assertIn("参与评估", result["final_answer"])
+        self.assertEqual(result["final_answer"]["conclusion"]["type"], "participate")
+        self.assertIn("参与评估", result["final_answer"]["headline"])
         self.assertEqual(result["risk"]["regime_stability"], "warn")
         self.assertIn("regime_quality: warn", result["risk"]["warnings"])
 
@@ -73,7 +74,8 @@ class DecisionInterpreterTests(unittest.TestCase):
 
         self.assertEqual(result["decision"]["band"], "high")
         self.assertEqual(result["decision"]["directional_bias"], "bearish")
-        self.assertIn("市场结构不稳定", result["final_answer"])
+        self.assertEqual(result["final_answer"]["conclusion"]["type"], "avoid")
+        self.assertIn("regime: shock", result["final_answer"]["risk_notes"])
         self.assertEqual(result["intent"]["type"], "market_state")
 
     def test_output_does_not_emit_trade_order_cash_or_shares(self) -> None:
@@ -88,7 +90,8 @@ class DecisionInterpreterTests(unittest.TestCase):
 
         self.assertEqual(result["decision"]["band"], "low")
         self.assertEqual(result["decision"]["directional_bias"], "bearish")
-        self.assertIn("结构不支持参与", result["final_answer"])
+        self.assertEqual(result["final_answer"]["conclusion"]["type"], "avoid")
+        self.assertIn("结构不支持参与", result["final_answer"]["headline"])
         self.assertEqual(result["intent"]["type"], "risk_assessment")
         for forbidden in ["买入", "卖出", "现金金额", "份额数量", "适合配置", "小仓位"]:
             self.assertNotIn(forbidden, rendered)

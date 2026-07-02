@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+import myinvestetf.web as web_module
 from myinvestetf.db import (
     QUEUE_SOURCE_BROAD_INDEX,
     QUEUE_SOURCE_DEFENSIVE,
@@ -540,6 +541,8 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/factors/ic/{factor}", paths)
         self.assertIn("/api/factors/exposure/{etf}", paths)
         self.assertIn("/api/score/{etf}", paths)
+        self.assertIn("/api/ask/{etf}", paths)
+        self.assertTrue(paths["/api/ask/{etf}"]["read_only"])
         self.assertIn("/api/score/decompose/{etf}", paths)
         self.assertIn("/api/decision/state/{etf}", paths)
         self.assertIn("/api/replay/{etf}", paths)
@@ -555,6 +558,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/market/liquidity", paths)
         self.assertIn("/api/market/regime-v2", paths)
         self.assertIn("/api/latest", [item["path"] for item in catalog["recommended_entrypoints"]])
+        self.assertIn("/api/ask/{etf}", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("不触发重计算", " ".join(catalog["safety"]["boundaries"]))
 
     def test_openapi_json_contains_catalog_paths(self) -> None:
@@ -568,6 +572,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/factors/{etf}", parsed["paths"])
         self.assertIn("/api/factors/ic/{factor}", parsed["paths"])
         self.assertIn("/api/score/{etf}", parsed["paths"])
+        self.assertIn("/api/ask/{etf}", parsed["paths"])
         self.assertIn("/api/score/decompose/{etf}", parsed["paths"])
         self.assertIn("/api/decision/state/{etf}", parsed["paths"])
         self.assertIn("/api/replay/{etf}", parsed["paths"])
@@ -587,6 +592,48 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/latest", html)
         self.assertIn("安全边界", html)
         self.assertIn("不触发重计算", html)
+
+    def test_api_ask_returns_unified_policy_answer(self) -> None:
+        original_signal_payload = web_module.decision_signal_payload_for_etf
+        original_health_payload = web_module.research_health_payload
+        try:
+            web_module.decision_signal_payload_for_etf = lambda code: {
+                "schema_version": "myinvestetf.decision_signal.v1",
+                "code": code,
+                "name": "沪深300ETF",
+                "taxonomy_profile": {"etf_type": "broad_index_core", "subtype": "core_beta"},
+                "regime_v2": {"regime": "risk_on", "confidence": 0.72},
+                "decision_signal": {
+                    "score": 80.0,
+                    "confidence": 0.81,
+                    "taxonomy_type": "broad_index_core",
+                    "state": {"regime": "risk_on"},
+                },
+                "constraints": {"read_only": True, "research_only": True},
+            }
+            web_module.research_health_payload = lambda: {
+                "health_report": {
+                    "data_quality": {"gate_status": "pass"},
+                    "regime_quality": {"gate_status": "pass"},
+                    "factor_quality": {"gate_status": "pass"},
+                    "report_quality": {"gate_status": "pass"},
+                }
+            }
+
+            payload = json.loads(web_module.api_ask_for_etf("510300.SH", "q=现在能不能买？").decode("utf-8"))
+        finally:
+            web_module.decision_signal_payload_for_etf = original_signal_payload
+            web_module.research_health_payload = original_health_payload
+
+        self.assertEqual(payload["schema_version"], "myinvestetf.ask.v1")
+        self.assertEqual(payload["intent"]["type"], "buy_assessment")
+        self.assertEqual(payload["decision"]["score"], 80.0)
+        self.assertEqual(payload["final_answer"]["conclusion"]["type"], "participate")
+        self.assertEqual(payload["constraints"]["final_answer_policy"], "AnswerPolicyEngine")
+        self.assertTrue(payload["constraints"]["read_only"])
+        rendered = json.dumps(payload, ensure_ascii=False)
+        for forbidden in ["买入", "卖出", "现金金额", "份额数量"]:
+            self.assertNotIn(forbidden, rendered)
 
     def test_valuation_signal_reads_etf_scores(self) -> None:
         row = {

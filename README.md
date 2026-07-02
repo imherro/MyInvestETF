@@ -29,7 +29,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
 - 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
 - 研究治理由 `core/governance` 生成，输出数据完整性、因子有效性、regime 稳定性、报告质量和系统健康分，用来判断研究结果是否可信、是否应被 gate 阻断。
-- 自然语言决策解释由 `core/interpreter` 生成，把已有 `DecisionSignal + taxonomy + governance` 翻译成结构化解释；该层只读，不查库、不重算、不输出买卖动作、现金金额或份额数量。
+- 自然语言决策解释由 `core/interpreter` 生成，把已有 `DecisionSignal + taxonomy + governance` 翻译成结构化解释；最终回答统一由 `AnswerPolicyEngine` 生成。该层只读，不输出买卖动作、现金金额或份额数量。
 - 问题意图识别由 `core/interpreter/question_router.py` 生成，把自然语言问题归类为 `buy_assessment`、`risk_assessment`、`market_state`、`comparison` 或 `unknown`；`unknown` 是合法结果，不强行分类。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
@@ -73,6 +73,7 @@ myinvestetf/web.py
   /api/index         对外主结果
   /api/latest        对外研究成果
   /api/score         单只 ETF 状态感知研究评分
+  /api/ask           单只 ETF 自然语言决策解释
   /api/decision      单只 ETF 状态机输出
   /api/replay        单只 ETF 历史评分回放
   /api/health        系统研究健康度与治理 gate
@@ -83,6 +84,8 @@ core/interpreter
         把现有结构化研究输出转成“是否适合参与”的只读结构化解释
   Question Router
         把自然语言问题转成稳定 QuestionIntent
+  AnswerPolicyEngine
+        统一生成 FinalAnswer，避免散落文本结论
 ```
 
 ## ETF 类型化研究依据
@@ -179,9 +182,11 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 - `decision`: 评分、`low | medium | high` 评分带和方向偏向。
 - `explanation`: 结构化原因列表。
 - `risk`: regime 稳定性、数据质量和治理警告。
-- `final_answer`: 面向人的概率性解释。
+- `final_answer`: 统一 `FinalAnswer`，包含 `headline`、`conclusion.type`、`reasoning`、`risk_notes` 和 `confidence`。
 
-`parse_question(question)` 支持 `buy_assessment`、`risk_assessment`、`market_state`、`comparison` 和 `unknown`。`DecisionInterpreter` 会先调用 router，再按意图调整解释路径。该层当前是核心类，不是 Web API；它不读取数据库、不触发同步、不重算估值、不写入队列，也不输出交易指令、现金金额或份额数量。
+`parse_question(question)` 支持 `buy_assessment`、`risk_assessment`、`market_state`、`comparison` 和 `unknown`。`DecisionInterpreter` 会先调用 router，随后把 `decision_signal`、`regime`、`intent`、`governance` 和 `taxonomy` 交给 `AnswerPolicyEngine` 生成最终回答；router 只识别问题意图，不直接生成答案文本。
+
+Web 提供只读问答入口：`GET /api/ask/{etf}?q=问题文本`。该接口复用本地已有研究输入，不写入队列、不触发外部同步、不输出交易指令、现金金额或份额数量。统一返回 `intent`、`decision`、`regime`、`final_answer` 和 `risk`。
 
 ## 决策回放与稳定性
 
@@ -329,6 +334,7 @@ python -m pytest tests -q
 - `/api/factors/exposure/{etf}`：单只 ETF 因子暴露显式别名。
 - `/api/factors/ic/{factor}`：单个因子的 5/20/60 日 IC 摘要。
 - `/api/score/{etf}`：单只 ETF 状态感知研究评分。
+- `/api/ask/{etf}?q={question}`：单只 ETF 自然语言决策解释，最终回答统一由 `AnswerPolicyEngine` 生成。
 - `/api/score/decompose/{etf}`：单只 ETF 评分组件、动态权重和贡献拆解。
 - `/api/decision/state/{etf}`：单只 ETF 状态机输出。
 - `/api/replay/{etf}`：单只 ETF 历史 DecisionSignal 回放报告。

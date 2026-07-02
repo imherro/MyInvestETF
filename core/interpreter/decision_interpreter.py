@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from typing import Any, Literal
 
+from .answer_policy import AnswerPolicyEngine, final_answer_to_dict
 from .question_router import QuestionIntent, parse_question, question_intent_to_dict
 
 
@@ -58,26 +59,6 @@ def _directional_bias(score: float | None, regime: str) -> DirectionalBias:
     return "bearish"
 
 
-def _final_answer(score: float | None, regime: str, intent_type: str) -> str:
-    if regime == "shock":
-        base = "当前市场结构不稳定，不适合基于趋势做参与评估。"
-    elif score is not None and score >= 75.0:
-        base = "结构支持参与评估，但仍应等待清晰触发条件并分批观察。"
-    elif score is not None and score >= 60.0:
-        base = "中性偏积极，适合继续观察或做小范围验证。"
-    else:
-        base = "结构不支持参与，风险或证据不充分。"
-    if intent_type == "risk_assessment":
-        base = f"风险判断：{base}"
-    elif intent_type == "market_state":
-        base = f"状态判断：{base}"
-    elif intent_type == "comparison":
-        base = f"比较意图已识别；当前输出仅解释单只ETF。{base}"
-    elif intent_type == "buy_assessment":
-        base = f"参与评估：{base}"
-    return f"{base}本输出只作研究解释，不构成交易指令。"
-
-
 def _status_label(status: object) -> str:
     text = str(status or "unknown")
     if text == "pass":
@@ -125,9 +106,15 @@ class DecisionInterpreter:
     fetch data, recompute scores, write state, or emit trade orders.
     """
 
-    def __init__(self, decision_engine: object | None = None, governance_engine: object | None = None) -> None:
+    def __init__(
+        self,
+        decision_engine: object | None = None,
+        governance_engine: object | None = None,
+        answer_policy: AnswerPolicyEngine | None = None,
+    ) -> None:
         self.decision_engine = decision_engine
         self.governance = governance_engine
+        self.answer_policy = answer_policy or AnswerPolicyEngine()
 
     def interpret(
         self,
@@ -179,6 +166,13 @@ class DecisionInterpreter:
         ]
         if warnings:
             explanation.append(f"治理层提示：{warnings[0]}。")
+        final_answer = self.answer_policy.generate_answer(
+            decision_signal=signal,
+            regime=signal_regime or fallback_regime,
+            intent=intent,
+            governance=health,
+            taxonomy=taxonomy,
+        )
 
         return {
             "question": question,
@@ -203,5 +197,5 @@ class DecisionInterpreter:
                 "data_quality": _status_label(data_quality.get("gate_status")),
                 "warnings": warnings,
             },
-            "final_answer": _final_answer(score, regime_state, intent.type),
+            "final_answer": final_answer_to_dict(final_answer),
         }
