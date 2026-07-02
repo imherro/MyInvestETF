@@ -910,15 +910,33 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("不修改原始 Decision Score", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
-        matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})
-        self.assertEqual(matrix["posture"], "底仓候选")
-        self.assertIn("底仓候选", matrix["conclusion"])
+        matrix = decision_matrix_summary(
+            {"bucket": "not_applicable", "label": "不依赖行业主线", "applies": False},
+            {"bucket": "high", "valuation_model_type": "factor_defensive"},
+            market_signal={"bucket": "watch", "label": "市场仓位信号中性"},
+            taxonomy_profile={"etf_type": "factor_strategy"},
+        )
+        self.assertEqual(matrix["posture"], "收益防御候选")
+        self.assertIn("策略型收益防御ETF不依赖行业主线", matrix["conclusion"])
+        self.assertNotIn("上游/产品", matrix["conclusion"])
+        self.assertFalse(matrix["theme_applicable"])
+
+    def test_decision_matrix_uses_theme_only_for_mainline_etf(self) -> None:
+        matrix = decision_matrix_summary(
+            {"bucket": "strong", "label": "主题主线信号强", "applies": True},
+            {"bucket": "high", "valuation_model_type": "mainline_theme"},
+            market_signal={"bucket": "strong", "label": "市场仓位信号偏积极"},
+            taxonomy_profile={"etf_type": "theme_lifecycle"},
+        )
+        self.assertEqual(matrix["posture"], "主线进攻候选")
+        self.assertTrue(matrix["theme_applicable"])
+        self.assertIn("theme行业主线", matrix["conclusion"])
 
     def test_current_decision_summary_surfaces_page_conclusion(self) -> None:
         html = render_current_decision_summary(
             {
                 "posture": "工具仓跟踪",
-                "conclusion": "上游/产品信号强，但估值、拥挤或流动性仍需观察，更适合作为工具仓跟踪",
+                "conclusion": "theme行业主线较强，但ETF估值、拥挤或流动性仍需观察，更适合作为工具仓跟踪",
             },
             {
                 "label": "ETF估值或拥挤压力较高",

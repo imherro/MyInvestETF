@@ -229,4 +229,6 @@ Replay 必须按 `as_of_date` 截断本地价格序列。研究日之前没有�
 - `factor_defensive`: `dividend_spread`, `fcf_yield`, `quality_score`, `style_opportunity_cost`
 - `cash_like`: `duration_risk`, `credit_risk`, `yield_stability`
 
+解释层按 ETF 类型使用不同上游信号：`market_signal` 代表 market 研究/市场状态给出的仓位口径，适用于所有权益 ETF；`theme_signal` 只代表 theme 研究的行业主线，只有 `mainline_theme` 使用它作为确认条件；`product_signal` 只描述 ETF 自身估值、流动性、跟踪质量、折溢价、回撤机会和风险调整。
+
 现金替代类 ETF 默认不进入深度研究队列；如生成监控型报告，也只能用于现金替代资格检查。

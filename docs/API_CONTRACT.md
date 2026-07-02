@@ -44,7 +44,10 @@ http://127.0.0.1:8017
 - `etfs[].research.reference_value_history`
 - `etfs[].research.run_count`
 - `etfs[].market_context`: 市场状态和回撤上下文
-- `etfs[].decision_matrix`
+- `etfs[].market_signal`: market 研究/市场状态给出的仓位信号，适用于所有权益 ETF
+- `etfs[].theme_signal`: theme 研究给出的行业主线信号，只适用于 `mainline_theme`
+- `etfs[].product_signal`: ETF 自身估值、流动性、跟踪和回撤机会信号
+- `etfs[].decision_matrix`: 按 ETF 类型组合 market/theme/product 的决策解释矩阵
 
 `research.latest` 是单只 ETF 最新的完整深研结果，不再拆分旧的两阶段任务。
 
@@ -91,7 +94,10 @@ http://127.0.0.1:8017
 - `leader_summary.sleeve_key`
 - `research_runs`: 研究历史，任务类型统一为 `research`
 - `market_context`: `regime` 与 `drawdown`，由本地日行情缓存计算
-- `decision_matrix`: 产品信号与 ETF 估值适配矩阵
+- `market_signal`: market 研究/市场状态仓位信号，适用于所有权益 ETF
+- `theme_signal`: theme 研究行业主线信号，只适用于主线/行业/主题 ETF；宽基和收益防御策略 ETF 显示为不适用
+- `product_signal`: ETF 产品估值、流动性、跟踪质量、回撤机会和风险调整信号
+- `decision_matrix`: 按 ETF 类型组合 market/theme/product 的决策解释矩阵
 - `queue`: 队列状态
 - `trackable_history`: 历史入口记录
 

@@ -269,7 +269,9 @@ LLM 负责收集 Tushare 和必要网络补充资料，构建 `assembly_input`�
 - 可跟踪 ETF 默认入口为 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf` 和 `result.etf_top`，并兼容旧 `key_results.primary_output.items` 结构。
 - 每条主线至少保留一个 ETF 代表进入研究队列；同一主线内优先选择有成交额且成交额最大的 ETF，缺成交额时使用 `top_etf` 的第一位。
 - 本地独立补齐上证综指、上证50、沪深300、中证500、中证1000、创业板、科创50 等核心宽基 ETF 研究对象；宽基研究来源不标记为可跟踪主线龙头。
-- ETF 深研队列先显示核心宽基代表，再显示主线代表；来源分别为 `核心宽基` 和 `主线代表`。
+- ETF 深研队列先显示核心宽基代表，再显示收益防御代表，最后显示主线代表；来源分别为 `核心宽基`、`收益防御代表` 和 `主线代表`。
+- 上游信号分为两类：`market_signal` 来自 market 研究/市场状态层，用于建议总权益仓位；`theme_signal` 来自 theme 研究，只对主线、行业和主题 ETF 生效。宽基 ETF、自由现金流 ETF、红利低波 ETF 不等待行业主线确认。
+- `product_signal` 只描述 ETF 自身估值、流动性、跟踪质量、折溢价、回撤机会和风险调整，不再混称为上游信号。
 - Tushare 是 ETF 结构化主源，通过本地 `.env` 读取 token。
 - 优先接口：`fund_basic`、`fund_daily`、`fund_nav`、`fund_share`、`fund_portfolio`、`index_daily`。
 - 网络资料只作为补充证据，必须记录来源、日期和用途。
@@ -349,10 +351,10 @@ python -m pytest tests -q
 - `/etfs/{code}`：ETF 详情页，显示当前研究结论、“问这个ETF”常用问答、参考价格区间历史、产品结构、持仓披露、估值与流动性、风险与证伪、研究历史。
 - `/research?etf={code}`：主动研究入口；没有详情页时入队并跳转，有详情页时直接跳转。
 - `/api/index`：对外主结果接口。
-- `/api/latest`：对外研究成果接口，包含每只 ETF 的 `taxonomy_profile` 和 `market_context`。
+- `/api/latest`：对外研究成果接口，包含每只 ETF 的 `taxonomy_profile`、`market_context`、`market_signal`、`theme_signal`、`product_signal` 和类型化 `decision_matrix`。
 - `/api/queue`：本地研究队列接口。
 - `/api/etfs`：当前 ETF 列表。
-- `/api/etfs/{code}`：单只 ETF 研究数据、`taxonomy_profile`、`market_context`、队列状态和历史。
+- `/api/etfs/{code}`：单只 ETF 研究数据、`taxonomy_profile`、`market_context`、市场/主题/产品信号、队列状态和历史。
 - `/api/etf/{code}/profile`：单只 ETF taxonomy profile。
 - `/api/factors/{etf}`：单只 ETF 标准化因子暴露。
 - `/api/factors/exposure/{etf}`：单只 ETF 因子暴露显式别名。

@@ -229,6 +229,7 @@ def leader_to_summary(row: object) -> dict[str, object]:
         },
         "market": market,
         "scores": scores,
+        "theme_signal": upstream_signal,
         "upstream_signal": upstream_signal,
         "risk_flags": load_json(row["risk_flags_json"], []),
         "data_gaps": load_json(row["data_gaps_json"], []),
@@ -386,13 +387,28 @@ def _signal_bucket(score: object, *, strong: float, weak: float) -> str:
 
 
 def _bucket_label(bucket: str, *, kind: str) -> str:
-    if kind == "upstream":
+    if kind in {"upstream", "theme"}:
         return {
-            "strong": "上游主线信号强",
-            "watch": "上游主线可跟踪",
-            "weak": "上游主线偏弱",
-            "unknown": "等待上游信号",
-        }.get(bucket, "等待上游信号")
+            "strong": "主题主线信号强",
+            "watch": "主题主线可跟踪",
+            "weak": "主题主线偏弱",
+            "not_applicable": "不依赖行业主线",
+            "unknown": "等待主题主线信号",
+        }.get(bucket, "等待主题主线信号")
+    if kind == "market":
+        return {
+            "strong": "市场仓位信号偏积极",
+            "watch": "市场仓位信号中性",
+            "weak": "市场仓位信号偏谨慎",
+            "unknown": "等待市场仓位信号",
+        }.get(bucket, "等待市场仓位信号")
+    if kind == "product":
+        return {
+            "high": "产品估值或回撤机会较好",
+            "medium": "产品信号中性",
+            "low": "产品估值或风险压力较高",
+            "unknown": "等待产品估值",
+        }.get(bucket, "等待产品估值")
     return {
         "high": "ETF估值与底仓适配较好",
         "medium": "ETF估值与底仓适配中性",
@@ -408,8 +424,10 @@ def upstream_signal_summary(row: object | None) -> dict[str, object]:
             "theme": None,
             "bucket": "unknown",
             "label": _bucket_label("unknown", kind="upstream"),
-            "explanation": "未找到主线主题接口入库信号。",
+            "applies": True,
+            "explanation": "未找到主题主线接口入库信号。",
         }
+    model_type = str(leader_model_info(row).get("valuation_model_type") or "")
     scores_value = load_json(row["scores_json"], {})
     market_value = load_json(row["market_json"], {})
     risk_flags_value = load_json(row["risk_flags_json"], [])
@@ -422,6 +440,29 @@ def upstream_signal_summary(row: object | None) -> dict[str, object]:
     leader_score = _num(row["deep_score"])
     evidence_quality = _num(scores.get("evidence_quality") or row["candidate_evidence_score"])
     trading_structure = _num(scores.get("trading_structure"))
+    if model_type != "mainline_theme":
+        return {
+            "source": "theme.okbbc.com/api/latest",
+            "theme": row["theme"],
+            "themes": themes,
+            "bucket": "not_applicable",
+            "label": _bucket_label("not_applicable", kind="theme"),
+            "applies": False,
+            "theme_binding": theme_binding,
+            "leader_score": leader_score,
+            "evidence_quality": evidence_quality,
+            "trading_structure": trading_structure,
+            "rating": f"{row['deep_rating'] or ''} {row['deep_label'] or ''}".strip(),
+            "leader_claim": row["candidate_leader_claim"],
+            "market": {
+                "r5": market.get("r5"),
+                "r20": market.get("r20"),
+                "r60": market.get("r60"),
+                "turnover_rate": market.get("turnover_rate"),
+            },
+            "risk_flags": risk_flags,
+            "explanation": "该ETF不是行业主线/主题ETF，不使用theme研究作为确认条件。",
+        }
 
     anchor_score = theme_binding if theme_binding is not None else leader_score
     bucket = _signal_bucket(anchor_score, strong=80.0, weak=60.0)
@@ -440,6 +481,7 @@ def upstream_signal_summary(row: object | None) -> dict[str, object]:
         "themes": themes,
         "bucket": bucket,
         "label": label,
+        "applies": True,
         "theme_binding": theme_binding,
         "leader_score": leader_score,
         "evidence_quality": evidence_quality,
@@ -454,6 +496,66 @@ def upstream_signal_summary(row: object | None) -> dict[str, object]:
         },
         "risk_flags": risk_flags,
         "explanation": "；".join(parts),
+    }
+
+
+def market_signal_summary(
+    market_regime: dict[str, object] | None = None,
+    market_context: dict[str, object] | None = None,
+) -> dict[str, object]:
+    regime_map = market_regime if isinstance(market_regime, dict) else {}
+    context_map = market_context if isinstance(market_context, dict) else {}
+    context_regime = context_map.get("regime") if isinstance(context_map.get("regime"), dict) else {}
+    evidence = regime_map.get("evidence") if isinstance(regime_map.get("evidence"), dict) else {}
+    structure = regime_map.get("structure") if isinstance(regime_map.get("structure"), dict) else {}
+    regime = str(regime_map.get("regime") or context_regime.get("regime") or "")
+    confidence = _num(regime_map.get("confidence") or context_regime.get("confidence"))
+    if regime == "risk_on":
+        bucket = "strong"
+        suggested_position = "权益仓位可偏积极"
+    elif regime == "rotation":
+        bucket = "watch"
+        suggested_position = "维持中性，等待结构确认"
+    elif regime in {"risk_off", "shock"}:
+        bucket = "weak"
+        suggested_position = "控制权益仓位，降低进攻暴露"
+    else:
+        bucket = "unknown"
+        suggested_position = "等待market研究建议仓位"
+    label = _bucket_label(bucket, kind="market")
+    return {
+        "source": "market研究/本地市场状态层",
+        "bucket": bucket,
+        "label": label,
+        "regime": regime or None,
+        "confidence": confidence,
+        "suggested_position": suggested_position,
+        "breadth_score": structure.get("breadth_score") or evidence.get("breadth_score"),
+        "liquidity_score": structure.get("liquidity_score") or evidence.get("liquidity_score"),
+        "price_trend_score": structure.get("price_trend_score") or evidence.get("price_trend_score"),
+        "explanation": (
+            f"市场状态 {REGIME_LABELS.get(regime, regime or '待入库')}，"
+            f"建议仓位口径：{suggested_position}。"
+        ),
+    }
+
+
+def product_signal_summary(valuation_signal: dict[str, object]) -> dict[str, object]:
+    bucket = str(valuation_signal.get("bucket") or "unknown")
+    return {
+        "source": valuation_signal.get("source") or "MyInvestETF deterministic valuation",
+        "bucket": bucket,
+        "label": _bucket_label(bucket, kind="product"),
+        "valuation_model_type": valuation_signal.get("valuation_model_type"),
+        "valuation_model_label": valuation_signal.get("valuation_model_label"),
+        "sleeve_key": valuation_signal.get("sleeve_key"),
+        "sleeve_label": valuation_signal.get("sleeve_label"),
+        "undervalued_score": valuation_signal.get("undervalued_score"),
+        "liquidity_score": valuation_signal.get("liquidity_score"),
+        "tracking_score": valuation_signal.get("tracking_score"),
+        "risk_adjusted_score": valuation_signal.get("risk_adjusted_score"),
+        "drawdown_opportunity_score": valuation_signal.get("drawdown_opportunity_score"),
+        "explanation": valuation_signal.get("explanation") or "等待ETF完整深研入库。",
     }
 
 
@@ -636,38 +738,109 @@ def valuation_signal_with_drawdown_context(
 def decision_matrix_summary(
     upstream_signal: dict[str, object],
     valuation_signal: dict[str, object],
+    *,
+    market_signal: dict[str, object] | None = None,
+    taxonomy_profile: dict[str, object] | None = None,
+    product_signal: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    upstream_bucket = str(upstream_signal.get("bucket") or "unknown")
+    market_signal = market_signal or market_signal_summary()
+    product_signal = product_signal or product_signal_summary(valuation_signal)
+    theme_signal = upstream_signal
+    model_type = str(valuation_signal.get("valuation_model_type") or "")
+    taxonomy_type = str((taxonomy_profile or {}).get("etf_type") or "")
+    if not model_type:
+        if taxonomy_type in {"broad_index_core", "broad_index_growth", "broad_index_value"}:
+            model_type = "broad_index"
+        elif taxonomy_type == "factor_strategy":
+            model_type = "factor_defensive"
+        elif taxonomy_type == "cash_equivalent":
+            model_type = "cash_like"
+        elif taxonomy_type in {"theme_lifecycle", "sector_cyclical", "sector_structural"}:
+            model_type = "mainline_theme"
+
+    market_bucket = str(market_signal.get("bucket") or "unknown")
+    theme_bucket = str(theme_signal.get("bucket") or "unknown")
     valuation_bucket = str(valuation_signal.get("bucket") or "unknown")
-    if upstream_bucket == "unknown":
-        conclusion = "等待上游或产品结构信号"
-        posture = "待确认"
-    elif valuation_bucket == "unknown":
-        conclusion = "等待ETF估值、流动性和跟踪质量验证"
+    product_bucket = str(product_signal.get("bucket") or valuation_bucket)
+    theme_applicable = model_type == "mainline_theme"
+
+    if product_bucket == "unknown":
+        conclusion = "等待ETF估值、流动性和跟踪质量验证。"
         posture = "待完整深研"
-    elif upstream_bucket == "strong" and valuation_bucket == "high":
-        conclusion = "上游/产品信号强，ETF估值与底仓适配较好，可进入底仓候选研究"
-        posture = "底仓候选"
-    elif upstream_bucket == "strong" and valuation_bucket in {"medium", "low"}:
-        conclusion = "上游/产品信号强，但估值、拥挤或流动性仍需观察，更适合作为工具仓跟踪"
-        posture = "工具仓跟踪"
-    elif upstream_bucket in {"watch", "weak"} and valuation_bucket == "high":
-        conclusion = "估值与流动性较好，但上游/产品信号未确认，适合作为观察型配置工具"
-        posture = "观察型工具"
-    elif upstream_bucket == "watch" and valuation_bucket == "medium":
-        conclusion = "产品信号和ETF估值都处于中性区间，继续观察净值、折溢价、份额和流动性"
-        posture = "观察"
+    elif model_type == "mainline_theme":
+        if theme_bucket == "unknown":
+            conclusion = "等待theme研究确认行业主线；market仓位信号和ETF产品信号只能先作为观察依据。"
+            posture = "等待主线确认"
+        elif market_bucket == "weak" and product_bucket in {"high", "medium"}:
+            conclusion = "theme主线和ETF产品信号可跟踪，但market仓位信号偏谨慎，主线进攻仓位应先按观察处理。"
+            posture = "主线观察"
+        elif theme_bucket == "strong" and product_bucket == "high":
+            conclusion = "market未限制，theme行业主线与ETF产品信号匹配，可作为主线进攻候选研究。"
+            posture = "主线进攻候选"
+        elif theme_bucket == "strong" and product_bucket in {"medium", "low"}:
+            conclusion = "theme行业主线较强，但ETF估值、拥挤或流动性仍需观察，更适合作为工具仓跟踪。"
+            posture = "工具仓跟踪"
+        elif theme_bucket in {"watch", "weak"} and product_bucket == "high":
+            conclusion = "ETF产品估值与流动性较好，但theme主线强度未充分确认，适合作为观察型配置工具。"
+            posture = "观察型工具"
+        else:
+            conclusion = "theme主线、产品估值或拥挤状态没有形成共振，优先等待证据更清晰。"
+            posture = "观察"
+    elif model_type == "broad_index":
+        if product_bucket == "high" and market_bucket in {"strong", "watch", "unknown"}:
+            conclusion = "宽基ETF不依赖行业主线；market仓位信号与宽基估值/流动性支持作为核心宽基候选研究。"
+            posture = "核心宽基候选"
+        elif product_bucket == "high":
+            conclusion = "宽基ETF不依赖行业主线；估值和流动性较好，但market仓位信号偏谨慎，适合作为仓位观察对象。"
+            posture = "仓位观察"
+        elif product_bucket == "medium":
+            conclusion = "宽基ETF不依赖行业主线；当前产品估值与流动性中性，应主要跟随market建议仓位调整。"
+            posture = "核心宽基观察"
+        else:
+            conclusion = "宽基ETF不依赖行业主线；当前估值、回撤或风险调整不足，等待更好的市场仓位或估值条件。"
+            posture = "暂缓底仓"
+    elif model_type == "factor_defensive":
+        if product_bucket == "high":
+            conclusion = "策略型收益防御ETF不依赖行业主线；估值、流动性、回撤机会或防御因子信号较好，可作为收益防御候选研究。"
+            posture = "收益防御候选"
+        elif product_bucket == "medium":
+            conclusion = "策略型收益防御ETF不依赖行业主线；产品信号中性，结合market仓位建议作为收益防御观察工具。"
+            posture = "收益防御观察"
+        else:
+            conclusion = "策略型收益防御ETF不依赖行业主线；当前策略因子、估值或风险调整不足，等待回撤或因子信号改善。"
+            posture = "等待策略信号"
+    elif model_type == "cash_like":
+        if product_bucket in {"high", "medium"}:
+            conclusion = "现金替代ETF不依赖行业主线或主线深研，重点看安全性、流动性、期限和信用风险。"
+            posture = "现金替代监控"
+        else:
+            conclusion = "现金替代ETF不依赖行业主线；当前安全性或流动性信号不足，暂不作为现金替代优选。"
+            posture = "现金替代暂缓"
+    elif market_bucket == "unknown":
+        conclusion = "等待market仓位信号和ETF产品结构验证。"
+        posture = "待确认"
     else:
-        conclusion = "产品信号偏弱且估值或拥挤压力较高，优先等待风险释放"
-        posture = "暂缓底仓"
+        conclusion = "按market仓位信号和ETF产品估值适配做类型化解释，等待更多研究证据。"
+        posture = "观察"
     return {
-        "upstream_bucket": upstream_bucket,
+        "market_bucket": market_bucket,
+        "theme_bucket": theme_bucket,
+        "product_bucket": product_bucket,
+        "upstream_bucket": theme_bucket,
         "valuation_bucket": valuation_bucket,
-        "upstream_label": upstream_signal.get("label"),
+        "market_label": market_signal.get("label"),
+        "theme_label": theme_signal.get("label"),
+        "product_label": product_signal.get("label"),
+        "upstream_label": theme_signal.get("label"),
         "valuation_label": valuation_signal.get("label"),
+        "theme_applicable": theme_applicable,
+        "valuation_model_type": model_type or None,
         "posture": posture,
         "conclusion": conclusion,
-        "rule": "theme.okbbc.com upstream signal + MyInvestETF valuation safety margin matrix",
+        "rule": "market position signal + type-specific ETF product signal; theme signal only applies to mainline/industry ETF",
+        "market_signal": market_signal,
+        "theme_signal": theme_signal,
+        "product_signal": product_signal,
     }
 
 
@@ -1270,9 +1443,9 @@ def api_catalog(base_url: str) -> dict[str, object]:
                 _api_endpoint(
                     "GET",
                     "/api/etfs/{code}",
-                    "返回单只 ETF 的 leader、taxonomy、研究运行、决策矩阵、队列状态和历史记录。",
+                    "返回单只 ETF 的 leader、taxonomy、研究运行、市场/主题/产品信号、决策矩阵、队列状态和历史记录。",
                     [{"name": "code", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
-                    "leader_summary、taxonomy_profile、research_runs、decision_matrix、queue、trackable_history。",
+                    "leader_summary、taxonomy_profile、research_runs、market_signal、theme_signal、product_signal、decision_matrix、queue、trackable_history。",
                     True,
                 ),
                 _api_endpoint(
@@ -1289,7 +1462,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             "name": "分析结果",
             "description": "当前完整深研结果、类型化估值输出和因子分析。",
             "endpoints": [
-                _api_endpoint("GET", "/api/latest", "对外研究成果接口，汇总所有 ETF 的最新深研、参考价格历史和决策矩阵。", [], "myinvestetf.research.v2 JSON。", True),
+                _api_endpoint("GET", "/api/latest", "对外研究成果接口，汇总所有 ETF 的最新深研、参考价格历史、市场/主题/产品信号和类型化决策矩阵。", [], "myinvestetf.research.v2 JSON。", True),
                 _api_endpoint(
                     "GET",
                     "/api/factors/{etf}",
@@ -2607,11 +2780,22 @@ def render_signal_matrix(
     upstream_signal: dict[str, object],
     valuation_signal: dict[str, object],
     matrix: dict[str, object],
+    *,
+    market_signal: dict[str, object] | None = None,
+    theme_signal: dict[str, object] | None = None,
+    product_signal: dict[str, object] | None = None,
 ) -> str:
-    upstream_risk_flags = upstream_signal.get("risk_flags")
-    if not isinstance(upstream_risk_flags, list):
-        upstream_risk_flags = []
-    risk_text = "；".join(str(item) for item in upstream_risk_flags) or "暂无上游风险提示"
+    matrix_market = matrix.get("market_signal") if isinstance(matrix.get("market_signal"), dict) else None
+    matrix_theme = matrix.get("theme_signal") if isinstance(matrix.get("theme_signal"), dict) else None
+    matrix_product = matrix.get("product_signal") if isinstance(matrix.get("product_signal"), dict) else None
+    market_signal = market_signal or matrix_market or market_signal_summary()
+    theme_signal = theme_signal or matrix_theme or upstream_signal
+    product_signal = product_signal or matrix_product or product_signal_summary(valuation_signal)
+    theme_risk_flags = theme_signal.get("risk_flags")
+    if not isinstance(theme_risk_flags, list):
+        theme_risk_flags = []
+    risk_text = "；".join(str(item) for item in theme_risk_flags) or "暂无主题风险提示"
+    theme_applicability = "适用" if theme_signal.get("applies") is not False else "不适用"
     valuation_range = valuation_signal.get("valuation_range")
     range_text = "等待ETF估值"
     if isinstance(valuation_range, dict) and valuation_range.get("mid") is not None:
@@ -2636,29 +2820,43 @@ def render_signal_matrix(
     else:
         model_specific_items = signal_item("宽基估值安全", fmt_num(valuation_signal.get("undervalued_score")))
     return f"""<section class="section-block">
-        <h2>产品信号与ETF估值适配</h2>
+        <h2>市场 / 主题 / 产品信号矩阵</h2>
         <div class="signal-matrix">
-          <div class="signal-panel signal-panel-upstream">
-            <h3>上游主线信号</h3>
-            <p class="muted">来自 theme.okbbc.com 主线主题接口，不在本项目重复研究主线。</p>
+          <div class="signal-panel signal-panel-market">
+            <h3>市场仓位信号</h3>
+            <p class="muted">来自 market 研究/本地市场状态层，用于判断总权益风险暴露，不等同于行业主线。</p>
             <div class="signal-grid">
-              {signal_item("所属主题", upstream_signal.get("theme"))}
-              {signal_item("主线状态", upstream_signal.get("label"), upstream_signal.get("rating"))}
-              {signal_item("主题绑定", fmt_num(upstream_signal.get("theme_binding")))}
-              {signal_item("主线强度", fmt_num(upstream_signal.get("leader_score")))}
-              {signal_item("证据质量", fmt_num(upstream_signal.get("evidence_quality")))}
-              {signal_item("交易结构", fmt_num(upstream_signal.get("trading_structure")))}
+              {signal_item("市场状态", REGIME_LABELS.get(str(market_signal.get("regime") or ""), market_signal.get("regime")))}
+              {signal_item("仓位信号", market_signal.get("label"))}
+              {signal_item("建议仓位口径", market_signal.get("suggested_position"))}
+              {signal_item("置信度", fmt_ratio_percent(market_signal.get("confidence")))}
+              {signal_item("宽度", fmt_num(market_signal.get("breadth_score")))}
+              {signal_item("流动性结构", fmt_num(market_signal.get("liquidity_score")))}
             </div>
-            <p class="signal-note">主线证据：{esc(upstream_signal.get("leader_claim") or "待入库")}</p>
-            <p class="signal-note">上游风险：{esc(risk_text)}</p>
+            <p class="signal-note">{esc(market_signal.get("explanation") or "等待market研究入库。")}</p>
+          </div>
+          <div class="signal-panel signal-panel-theme">
+            <h3>主题主线信号</h3>
+            <p class="muted">只对主线/行业/主题 ETF 生效；宽基、自由现金流、红利低波等策略型 ETF 不用等待行业主线确认。</p>
+            <div class="signal-grid">
+              {signal_item("适用性", theme_applicability)}
+              {signal_item("所属主题", theme_signal.get("theme"))}
+              {signal_item("主线状态", theme_signal.get("label"), theme_signal.get("rating"))}
+              {signal_item("主题绑定", fmt_num(theme_signal.get("theme_binding")))}
+              {signal_item("主线强度", fmt_num(theme_signal.get("leader_score")))}
+              {signal_item("证据质量", fmt_num(theme_signal.get("evidence_quality")))}
+              {signal_item("交易结构", fmt_num(theme_signal.get("trading_structure")))}
+            </div>
+            <p class="signal-note">主题说明：{esc(theme_signal.get("explanation") or theme_signal.get("leader_claim") or "待入库")}</p>
+            <p class="signal-note">主题风险：{esc(risk_text)}</p>
           </div>
           <div class="signal-panel signal-panel-valuation">
-            <h3>ETF类型化估值与仓位适配</h3>
+            <h3>产品估值与仓位适配</h3>
             <p class="muted">来自 MyInvestETF 确定性评分；不同 ETF 类型使用不同估值依据。</p>
             <div class="signal-grid">
               {signal_item("估值框架", valuation_signal.get("valuation_model_label"))}
               {signal_item("五仓角色", valuation_signal.get("sleeve_label"))}
-              {signal_item("适配状态", valuation_signal.get("label"))}
+              {signal_item("产品状态", product_signal.get("label"))}
               {signal_item("参考价格区间", range_text, valuation_signal.get("source"))}
               {signal_item("估值分位", fmt_percentile(valuation_signal.get("valuation_percentile")))}
               {model_specific_items}
@@ -2798,7 +2996,15 @@ def render_etf_page(code: str) -> bytes:
     market_context = market_context_from_prices(code, context_prices)
     market_regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(code, context_prices, market_structure_obj))
     valuation_signal = valuation_signal_with_drawdown_context(valuation_signal, taxonomy_profile, market_regime_v2)
-    decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
+    market_signal = market_signal_summary(market_regime_v2, market_context)
+    product_signal = product_signal_summary(valuation_signal)
+    decision_matrix = decision_matrix_summary(
+        upstream_signal,
+        valuation_signal,
+        market_signal=market_signal,
+        taxonomy_profile=taxonomy_profile,
+        product_signal=product_signal,
+    )
     factor_exposure = factor_exposure_from_prices(code, context_prices, taxonomy_profile)
     adaptive_decision_signal = decision_signal_from_inputs(
         code=code,
@@ -2844,7 +3050,14 @@ def render_etf_page(code: str) -> bytes:
     )
     report_date = report["basis_date"] if report else ""
     queue_status_section = render_etf_queue_status(etf_queue)
-    signal_matrix_section = render_signal_matrix(upstream_signal, valuation_signal, decision_matrix)
+    signal_matrix_section = render_signal_matrix(
+        upstream_signal,
+        valuation_signal,
+        decision_matrix,
+        market_signal=market_signal,
+        theme_signal=upstream_signal,
+        product_signal=product_signal,
+    )
     trackable_history_section = render_trackable_history(trackable_history)
 
     history_rows = "".join(
@@ -3034,9 +3247,14 @@ def api_latest() -> bytes:
                 taxonomy_profile,
                 {"evidence": {"current_drawdown": (market_context.get("drawdown") or {}).get("current_drawdown") if isinstance(market_context.get("drawdown"), dict) else None}},
             )
+            latest_market_signal = market_signal_summary(market_context=market_context)
+            latest_product_signal = product_signal_summary(latest_valuation_signal)
             decision_matrix = decision_matrix_summary(
                 leader_summary["upstream_signal"],
                 latest_valuation_signal,
+                market_signal=latest_market_signal,
+                taxonomy_profile=taxonomy_profile,
+                product_signal=latest_product_signal,
             )
             etfs.append(
                 {
@@ -3048,6 +3266,9 @@ def api_latest() -> bytes:
                     },
                     "taxonomy_profile": taxonomy_profile,
                     "market_context": market_context,
+                    "market_signal": latest_market_signal,
+                    "theme_signal": leader_summary["upstream_signal"],
+                    "product_signal": latest_product_signal,
                     "decision_matrix": decision_matrix,
                 }
             )
@@ -3089,15 +3310,23 @@ def api_etf(code: str) -> bytes:
         taxonomy_profile,
         {"evidence": {"current_drawdown": (market_context.get("drawdown") or {}).get("current_drawdown") if isinstance(market_context.get("drawdown"), dict) else None}},
     )
+    current_market_signal = market_signal_summary(market_context=market_context)
+    current_product_signal = product_signal_summary(current_valuation_signal)
     decision_matrix = decision_matrix_summary(
         leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
         current_valuation_signal,
+        market_signal=current_market_signal,
+        taxonomy_profile=taxonomy_profile,
+        product_signal=current_product_signal,
     )
     return json.dumps(
         {
             "leader": dict(leader) if leader else None,
             "leader_summary": leader_summary,
             "upstream_signal": leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
+            "market_signal": current_market_signal,
+            "theme_signal": leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
+            "product_signal": current_product_signal,
             "research_runs": runs,
             "taxonomy_profile": taxonomy_profile,
             "market_context": market_context,
