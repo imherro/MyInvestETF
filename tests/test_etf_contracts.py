@@ -46,6 +46,7 @@ from myinvestetf.web import (
     render_reference_price_explanation,
     render_decision_signal,
     render_signal_matrix,
+    render_strategy_decision,
     render_valuation_chart,
     render_queue_rows,
     render_layout,
@@ -550,6 +551,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/score/decompose/{etf}", paths)
         self.assertIn("/api/decision/state/{etf}", paths)
         self.assertIn("/api/strategy/contrarian/{etf}", paths)
+        self.assertIn("/api/strategy/route/{etf}", paths)
         self.assertIn("/api/replay/{etf}", paths)
         self.assertIn("/api/replay/{etf}/stability", paths)
         self.assertIn("/api/replay/{etf}/regime-path", paths)
@@ -565,6 +567,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/latest", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("/api/ask/{etf}", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("/api/strategy/contrarian/{etf}", [item["path"] for item in catalog["recommended_entrypoints"]])
+        self.assertIn("/api/strategy/route/{etf}", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("不触发重计算", " ".join(catalog["safety"]["boundaries"]))
 
     def test_openapi_json_contains_catalog_paths(self) -> None:
@@ -582,6 +585,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/score/decompose/{etf}", parsed["paths"])
         self.assertIn("/api/decision/state/{etf}", parsed["paths"])
         self.assertIn("/api/strategy/contrarian/{etf}", parsed["paths"])
+        self.assertIn("/api/strategy/route/{etf}", parsed["paths"])
         self.assertIn("/api/replay/{etf}", parsed["paths"])
         self.assertIn("/api/replay/{etf}/stability", parsed["paths"])
         self.assertIn("/api/replay/{etf}/regime-path", parsed["paths"])
@@ -881,6 +885,29 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("72.00%", html)
         self.assertIn("不覆盖 Decision Score", html)
         self.assertIn("不是趋势买点", html)
+
+    def test_strategy_decision_section_renders_active_mode(self) -> None:
+        html = render_strategy_decision(
+            {
+                "active_mode": "contrarian",
+                "confidence": 0.74,
+                "reasoning": {
+                    "regime_reason": "regime=shock",
+                    "flow_reason": "flow_score=0.35",
+                    "drawdown_reason": "drawdown_extreme=True",
+                    "governance_reason": "gate=pass",
+                },
+                "suppressed_mode": "trend",
+                "signals": {"trend_score": 0.62, "contrarian_score": 0.81, "decision_score": 0.70},
+                "final_interpretation": "当前由抄底概率模式主导。",
+            }
+        )
+
+        self.assertIn("策略路由", html)
+        self.assertIn("抄底概率模式", html)
+        self.assertIn("81.00%", html)
+        self.assertIn("trend", html)
+        self.assertIn("不修改原始 Decision Score", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})

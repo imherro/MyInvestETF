@@ -158,6 +158,23 @@ Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 
 
 该层是 `DecisionSignal` 的再解释层，不覆盖原始 `DecisionSignal.score`，不输出交易动作、现金金额或份额数量。
 
+## Strategy Route Output
+
+策略路由不写入 `ETFResearchReport` 强 schema，当前通过 `/api/strategy/route/*` 和 ETF 详情页生成。字段包括：
+
+- `active_mode`: `trend`、`contrarian` 或 `neutral`。
+- `confidence`: 路由置信度。
+- `reasoning.regime_reason`: 市场状态原因。
+- `reasoning.flow_reason`: flow 和流动性原因。
+- `reasoning.drawdown_reason`: 回撤与抄底概率原因。
+- `reasoning.governance_reason`: 研究治理 gate 原因。
+- `suppressed_mode`: 被压制的模式，允许为 `null`。
+- `signals.trend_score`: 顺势模式分。
+- `signals.contrarian_score`: 抄底概率模式分。
+- `final_interpretation`: 最终策略解释文本。
+
+该层只做 trend、contrarian、neutral 的解释层选择，不改写 `DecisionSignal.score`，不输出交易动作、现金金额或份额数量。
+
 ## Replay Report Output
 
 历史回放不写入 `ETFResearchReport` 强 schema，当前通过 `/api/replay/*` 输出。字段包括：

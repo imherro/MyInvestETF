@@ -41,7 +41,7 @@ from core.market import (
     market_structure_to_dict,
 )
 from core.replay import build_replay_report, replay_report_to_dict
-from core.strategy import ContrarianModeEngine, contrarian_signal_to_dict
+from core.strategy import ContrarianModeEngine, StrategyRouter, contrarian_signal_to_dict, strategy_decision_to_dict
 from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
@@ -1359,6 +1359,14 @@ def api_catalog(base_url: str) -> dict[str, object]:
                 ),
                 _api_endpoint(
                     "GET",
+                    "/api/strategy/route/{etf}",
+                    "返回单只 ETF 的 Strategy Router 策略编排结果，在 trend、contrarian、neutral 间选择。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "active_mode、confidence、reasoning、suppressed_mode、signals、final_interpretation。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
                     "/api/replay/{etf}",
                     "返回单只 ETF 的历史 DecisionSignal 回放报告。",
                     [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
@@ -1424,6 +1432,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/score/{etf}", "reason": "读取单只 ETF 状态感知研究评分。"},
             {"path": "/api/ask/{etf}", "reason": "按问题读取统一策略层生成的 ETF 决策解释。"},
             {"path": "/api/strategy/contrarian/{etf}", "reason": "读取极端回撤下的抄底概率模式。"},
+            {"path": "/api/strategy/route/{etf}", "reason": "读取自动策略路由和冲突仲裁结果。"},
             {"path": "/api/replay/{etf}", "reason": "读取单只 ETF 历史评分回放和稳定性验证。"},
             {"path": "/api/health/system", "reason": "读取系统研究可信度总览。"},
             {"path": "/api/market/regime-v2", "reason": "读取结构驱动市场状态。"},
@@ -1991,6 +2000,23 @@ def contrarian_signal_from_inputs(
     return contrarian_signal_to_dict(engine.adjust_decision(decision_signal or {}))
 
 
+def strategy_decision_from_inputs(
+    *,
+    code: str,
+    decision_signal: dict[str, object] | None,
+    contrarian_signal: dict[str, object] | None,
+    market_regime_v2: dict[str, object] | None,
+    governance_report: dict[str, object] | None,
+) -> dict[str, object]:
+    router = StrategyRouter(
+        decision_signal or {},
+        contrarian_signal or {},
+        market_regime_v2 or {},
+        governance_report or {},
+    )
+    return strategy_decision_to_dict(router.route(code))
+
+
 def render_factor_exposure(exposure: dict[str, object] | None) -> str:
     exposure = exposure or {}
     factors = exposure.get("factors")
@@ -2101,6 +2127,41 @@ def render_contrarian_signal(signal: dict[str, object] | None) -> str:
         </div>
         <ul class="risk-list">{condition_items}</ul>
         <p class="signal-note">{esc(adjusted.get("explanation") if isinstance(adjusted, dict) else "等待抄底概率模式输入。")}</p>
+      </section>"""
+
+
+def render_strategy_decision(decision: dict[str, object] | None) -> str:
+    decision = decision or {}
+    reasoning = decision.get("reasoning") if isinstance(decision.get("reasoning"), dict) else {}
+    signals = decision.get("signals") if isinstance(decision.get("signals"), dict) else {}
+    active_mode = str(decision.get("active_mode") or "neutral")
+    mode_label = {
+        "trend": "顺势模式",
+        "contrarian": "抄底概率模式",
+        "neutral": "中性观察",
+    }.get(active_mode, active_mode)
+    reason_items = "".join(
+        f"<li>{esc(label)}：{esc(reasoning.get(key))}</li>"
+        for key, label in [
+            ("regime_reason", "市场状态"),
+            ("flow_reason", "资金/流动性"),
+            ("drawdown_reason", "回撤"),
+            ("governance_reason", "治理"),
+        ]
+    )
+    return f"""<section class="section-block">
+        <h2>策略路由</h2>
+        <p class="muted">Strategy Router 在顺势模式、抄底概率模式和中性观察之间做解释层选择；不修改原始 Decision Score。</p>
+        <div class="signal-grid">
+          {signal_item("当前模式", mode_label)}
+          {signal_item("路由置信度", fmt_ratio_percent(decision.get("confidence")))}
+          {signal_item("顺势分", fmt_ratio_percent(signals.get("trend_score") if isinstance(signals, dict) else None))}
+          {signal_item("抄底分", fmt_ratio_percent(signals.get("contrarian_score") if isinstance(signals, dict) else None))}
+          {signal_item("原始Decision", fmt_ratio_percent(signals.get("decision_score") if isinstance(signals, dict) else None))}
+          {signal_item("被抑制模式", decision.get("suppressed_mode") or "无")}
+        </div>
+        <ul class="risk-list">{reason_items}</ul>
+        <p class="signal-note">{esc(decision.get("final_interpretation") or "等待策略路由输入。")}</p>
       </section>"""
 
 
@@ -2761,6 +2822,13 @@ def render_etf_page(code: str) -> bytes:
         governance_report=governance_report,
         decision_signal=adaptive_decision_signal,
     )
+    strategy_decision = strategy_decision_from_inputs(
+        code=code,
+        decision_signal=adaptive_decision_signal,
+        contrarian_signal=contrarian_signal,
+        market_regime_v2=market_regime_v2,
+        governance_report=governance_report,
+    )
     common_ask_answers = build_common_ask_answers(
         code=code,
         decision_signal=adaptive_decision_signal,
@@ -2831,6 +2899,7 @@ def render_etf_page(code: str) -> bytes:
       {render_factor_exposure(factor_exposure)}
       {render_decision_signal(adaptive_decision_signal)}
       {render_contrarian_signal(contrarian_signal)}
+      {render_strategy_decision(strategy_decision)}
       {render_market_regime_v2(market_regime_v2, market_structure)}
       {render_market_context(market_context)}
       {render_valuation_chart(chart_runs, chart_prices)}
@@ -3319,12 +3388,60 @@ def contrarian_signal_payload_for_etf(code: str) -> dict[str, object]:
     }
 
 
+def strategy_route_payload_for_etf(code: str) -> dict[str, object]:
+    if not ETF_CODE_RE.match(code):
+        return {
+            "schema_version": "myinvestetf.strategy_route.v1",
+            "code": code,
+            "error": "invalid_etf_code",
+            "constraints": {"read_only": True, "research_only": True},
+        }
+    contrarian_payload = contrarian_signal_payload_for_etf(code)
+    if contrarian_payload.get("error"):
+        return {
+            "schema_version": "myinvestetf.strategy_route.v1",
+            "code": code,
+            "error": contrarian_payload.get("error"),
+            "constraints": contrarian_payload.get("constraints", {"read_only": True, "research_only": True}),
+        }
+    health_payload = research_health_payload()
+    governance_report = health_payload.get("health_report") if isinstance(health_payload.get("health_report"), dict) else {}
+    strategy_decision = strategy_decision_from_inputs(
+        code=code,
+        decision_signal=contrarian_payload.get("decision_signal") if isinstance(contrarian_payload.get("decision_signal"), dict) else {},
+        contrarian_signal=contrarian_payload.get("contrarian_signal") if isinstance(contrarian_payload.get("contrarian_signal"), dict) else {},
+        market_regime_v2=contrarian_payload.get("regime_v2") if isinstance(contrarian_payload.get("regime_v2"), dict) else {},
+        governance_report=governance_report,
+    )
+    return {
+        "schema_version": "myinvestetf.strategy_route.v1",
+        "code": code,
+        "name": contrarian_payload.get("name"),
+        "decision_signal": contrarian_payload.get("decision_signal"),
+        "contrarian_signal": contrarian_payload.get("contrarian_signal"),
+        "strategy_decision": strategy_decision,
+        "constraints": {
+            "read_only": True,
+            "research_only": True,
+            "does_not_override_decision_score": True,
+            "contains_trade_orders": False,
+            "contains_cash_amounts": False,
+            "contains_share_counts": False,
+            "executes_rebalance": False,
+        },
+    }
+
+
 def api_score_for_etf(code: str) -> bytes:
     return json.dumps(decision_signal_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
 
 
 def api_contrarian_for_etf(code: str) -> bytes:
     return json.dumps(contrarian_signal_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
+
+
+def api_strategy_route_for_etf(code: str) -> bytes:
+    return json.dumps(strategy_route_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
 
 
 def api_ask_for_etf(code: str, query: str) -> bytes:
@@ -3865,6 +3982,10 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/strategy/contrarian/"):
             code = path.removeprefix("/api/strategy/contrarian/").upper()
             self.send_bytes(api_contrarian_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/strategy/route/"):
+            code = path.removeprefix("/api/strategy/route/").upper()
+            self.send_bytes(api_strategy_route_for_etf(code), "application/json; charset=utf-8")
             return
         if path.startswith("/api/replay/") and path.endswith("/stability"):
             code = path.removeprefix("/api/replay/").removesuffix("/stability").strip("/").upper()

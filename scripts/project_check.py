@@ -83,6 +83,7 @@ def main() -> int:
     ok &= check((ROOT / "core" / "replay" / "engine.py").exists(), "ETF replay engine exists")
     ok &= check((ROOT / "core" / "risk" / "drawdown.py").exists(), "ETF drawdown layer exists")
     ok &= check((ROOT / "core" / "strategy" / "contrarian_mode.py").exists(), "ETF contrarian strategy layer exists")
+    ok &= check((ROOT / "core" / "strategy" / "router.py").exists(), "ETF strategy router layer exists")
     ok &= check((ROOT / "core" / "taxonomy" / "etf_classifier.py").exists(), "ETF taxonomy classifier exists")
     ok &= check((ROOT / "core" / "factors" / "standardization.py").exists(), "ETF factor standardization layer exists")
     ok &= check((ROOT / "core" / "factors" / "ic.py").exists(), "ETF factor IC layer exists")
@@ -92,6 +93,7 @@ def main() -> int:
     ok &= check("AnswerPolicyEngine" in (ROOT / "core" / "interpreter" / "decision_interpreter.py").read_text(encoding="utf-8"), "final answers route through answer policy")
     ok &= check("/api/replay/{etf}" in web_source and "/api/replay/{etf}/stability" in web_source, "decision replay APIs are cataloged")
     ok &= check("/api/strategy/contrarian/{etf}" in web_source and "api_contrarian_for_etf" in web_source, "contrarian strategy API is cataloged")
+    ok &= check("/api/strategy/route/{etf}" in web_source and "api_strategy_route_for_etf" in web_source, "strategy router API is cataloged")
     ok &= check("/api/health/system" in web_source and "/api/health/report" in web_source, "research health APIs are cataloged")
     queue_prompt_doc = ROOT / "docs" / "QUEUE_PROMPTS.md"
     queue_script = (ROOT / "scripts" / "generate_single_etf_prompt.py").read_text(encoding="utf-8")

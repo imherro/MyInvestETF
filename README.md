@@ -27,7 +27,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；用于因子暴露、IC、DecisionSignal 组件评分和解释。
 - 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，并参与状态感知研究评分。
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
-- 抄底概率模式由 `core/strategy` 生成，在极端回撤、压力状态和波动释放时输出 `ContrarianSignal`；它只做 DecisionSignal 的再解释，不覆盖原始评分。
+- 策略层由 `core/strategy` 生成：Contrarian Mode 在极端回撤、压力状态和波动释放时输出 `ContrarianSignal`；Strategy Router 在 trend、contrarian、neutral 间做解释层编排，不覆盖原始评分。
 - 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
 - 研究治理由 `core/governance` 生成，输出数据完整性、因子有效性、regime 稳定性、报告质量和系统健康分，用来判断研究结果是否可信、是否应被 gate 阻断。
 - 自然语言决策解释由 `core/interpreter` 生成，把已有 `DecisionSignal + taxonomy + governance` 翻译成结构化解释；最终回答统一由 `AnswerPolicyEngine` 生成。该层只读，不输出买卖动作、现金金额或份额数量。
@@ -76,7 +76,7 @@ myinvestetf/web.py
   /api/score         单只 ETF 状态感知研究评分
   /api/ask           单只 ETF 自然语言决策解释
   /api/decision      单只 ETF 状态机输出
-  /api/strategy      单只 ETF 抄底概率模式
+  /api/strategy      单只 ETF 抄底概率模式和策略路由
   /api/replay        单只 ETF 历史评分回放
   /api/health        系统研究健康度与治理 gate
   /api/queue         本地队列
@@ -201,6 +201,16 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 `parse_question(question)` 支持 `buy_assessment`、`risk_assessment`、`market_state`、`comparison` 和 `unknown`。`DecisionInterpreter` 会先调用 router，随后把 `decision_signal`、`regime`、`intent`、`governance` 和 `taxonomy` 交给 `AnswerPolicyEngine` 生成最终回答；router 只识别问题意图，不直接生成答案文本。
 
 Web 提供只读问答入口：`GET /api/ask/{etf}?q=问题文本`。该接口复用本地已有研究输入，不写入队列、不触发外部同步、不输出交易指令、现金金额或份额数量。统一返回 `intent`、`decision`、`regime`、`final_answer` 和 `risk`。
+
+## 策略路由
+
+`core/strategy/router.py` 提供 Strategy Router。它自动判断当前主导解释模式：
+
+- `trend`: Regime 为 `risk_on`，flow 和 momentum 为正，且没有极端回撤。
+- `contrarian`: 极端回撤、压力 Regime 和反转概率共同支持抄底概率观察。
+- `neutral`: rotation 不稳定、信号冲突、governance 为 warn/reject 或没有清晰主导。
+
+Router 输出 `StrategyDecision`，包含 `active_mode`、`confidence`、四类 `reasoning`、`suppressed_mode`、`signals.trend_score`、`signals.contrarian_score` 和 `final_interpretation`。该层不修改 `DecisionSignal.score`，不输出交易动作、现金金额或份额数量。Web 详情页和 `GET /api/strategy/route/{etf}` 会展示策略编排结果。
 
 ## 决策回放与稳定性
 
@@ -352,6 +362,7 @@ python -m pytest tests -q
 - `/api/score/decompose/{etf}`：单只 ETF 评分组件、动态权重和贡献拆解。
 - `/api/decision/state/{etf}`：单只 ETF 状态机输出。
 - `/api/strategy/contrarian/{etf}`：单只 ETF 抄底概率模式，不覆盖原 Decision Score。
+- `/api/strategy/route/{etf}`：单只 ETF 策略路由，在 trend、contrarian、neutral 间做解释层选择。
 - `/api/replay/{etf}`：单只 ETF 历史 DecisionSignal 回放报告。
 - `/api/replay/{etf}/stability`：单只 ETF 回放稳定性指标。
 - `/api/replay/{etf}/regime-path`：单只 ETF 历史 regime path 和状态切换矩阵。

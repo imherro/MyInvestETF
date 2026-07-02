@@ -236,6 +236,29 @@ http://127.0.0.1:8017
 
 该接口只读，不写库、不写队列、不重算研究报告、不覆盖原始 Decision Score、不输出交易动作、现金金额或份额数量。
 
+## `/api/strategy/route/{etf}`
+
+用途：输出单只 ETF 的 Strategy Router 策略编排结果。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.strategy_route.v1`
+- `decision_signal.score`: 原始 Decision Score
+- `contrarian_signal`: Contrarian Mode 旁路结果
+- `strategy_decision.active_mode`: `trend`、`contrarian` 或 `neutral`
+- `strategy_decision.confidence`
+- `strategy_decision.reasoning.regime_reason`
+- `strategy_decision.reasoning.flow_reason`
+- `strategy_decision.reasoning.drawdown_reason`
+- `strategy_decision.reasoning.governance_reason`
+- `strategy_decision.suppressed_mode`: `trend`、`contrarian` 或 `null`
+- `strategy_decision.signals.trend_score`
+- `strategy_decision.signals.contrarian_score`
+- `strategy_decision.final_interpretation`
+- `strategy_decision.constraints.does_not_override_decision_score`: `true`
+
+该接口只读，只做策略解释层路由；不修改 scoring system、不修改 Decision Engine、不写入数据库、不输出交易建议、现金金额或份额数量。
+
 ## `/api/replay/{etf}`
 
 用途：输出单只 ETF 的历史 DecisionSignal 回放报告。
