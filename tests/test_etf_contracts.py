@@ -32,10 +32,12 @@ from myinvestetf.leader_index import (
 )
 from myinvestetf.web import (
     api_catalog,
+    build_common_ask_answers,
     decision_matrix_summary,
     leader_to_summary,
     openapi_json,
     render_api_overview,
+    render_ask_widget,
     render_current_decision_summary,
     render_etf_cards,
     render_market_context,
@@ -877,6 +879,37 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("参考低 / 中 / 高", html)
         self.assertIn("4.36 / 4.74 / 5.12", html)
         self.assertIn("risk_on:strong:uptrend", html)
+
+    def test_ask_widget_shows_entry_common_questions_and_answers(self) -> None:
+        answers = build_common_ask_answers(
+            code="510300.SH",
+            decision_signal={
+                "score": 80.0,
+                "confidence": 0.81,
+                "taxonomy_type": "broad_index_core",
+                "state": {"regime": "risk_on"},
+            },
+            taxonomy_profile={"etf_type": "broad_index_core", "subtype": "core_beta"},
+            market_regime={"regime": "risk_on", "confidence": 0.7},
+            governance_report={
+                "data_quality": {"gate_status": "pass"},
+                "regime_quality": {"gate_status": "pass"},
+                "factor_quality": {"gate_status": "pass"},
+                "report_quality": {"gate_status": "pass"},
+            },
+        )
+        html = render_ask_widget("510300.SH", answers)
+
+        self.assertEqual(len(answers), 3)
+        self.assertIn("问这个ETF", html)
+        self.assertIn('/api/ask/510300.SH', html)
+        self.assertIn("现在能不能参与？", html)
+        self.assertIn("风险大不大？", html)
+        self.assertIn("当前是什么状态？", html)
+        self.assertIn("结构支持参与评估", html)
+        self.assertIn("依据", html)
+        self.assertIn("风险", html)
+        self.assertIn("等待自定义提问", html)
 
     def test_report_meta_requires_report_id(self) -> None:
         with self.assertRaises(ValueError):

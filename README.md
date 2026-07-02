@@ -322,7 +322,7 @@ python -m pytest tests -q
 - `/docs`：轻量浏览器接口文档。
 - `/redoc`：ReDoc 风格轻量浏览器接口文档。
 - `/openapi.json`：当前公开接口的 OpenAPI 3.0 描述。
-- `/etfs/{code}`：ETF 详情页，显示参考价格区间历史、产品结构、持仓披露、估值与流动性、风险与证伪、研究历史。
+- `/etfs/{code}`：ETF 详情页，显示当前研究结论、“问这个ETF”常用问答、参考价格区间历史、产品结构、持仓披露、估值与流动性、风险与证伪、研究历史。
 - `/research?etf={code}`：主动研究入口；没有详情页时入队并跳转，有详情页时直接跳转。
 - `/api/index`：对外主结果接口。
 - `/api/latest`：对外研究成果接口，包含每只 ETF 的 `taxonomy_profile` 和 `market_context`。

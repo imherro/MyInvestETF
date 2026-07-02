@@ -86,6 +86,7 @@ def main() -> int:
     ok &= check((ROOT / "core" / "factors" / "ic.py").exists(), "ETF factor IC layer exists")
     ok &= check("/api/score/{etf}" in web_source and "/api/decision/state/{etf}" in web_source, "decision score APIs are cataloged")
     ok &= check("/api/ask/{etf}" in web_source and "api_ask_for_etf" in web_source, "decision ask API is cataloged")
+    ok &= check("render_ask_widget" in web_source and "常用问题" in web_source, "ETF ask page entry is wired")
     ok &= check("AnswerPolicyEngine" in (ROOT / "core" / "interpreter" / "decision_interpreter.py").read_text(encoding="utf-8"), "final answers route through answer policy")
     ok &= check("/api/replay/{etf}" in web_source and "/api/replay/{etf}/stability" in web_source, "decision replay APIs are cataloged")
     ok &= check("/api/health/system" in web_source and "/api/health/report" in web_source, "research health APIs are cataloged")

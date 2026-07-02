@@ -70,6 +70,7 @@ SYSTEM_VERSION = "0.1.0"
 SYSTEM_DESCRIPTION = "ETF 研究、类型化估值、研究队列和只读 Web 展示系统。"
 HEALTH_CACHE_TTL_SECONDS = 120.0
 _HEALTH_CACHE: dict[str, object] = {"created_at": 0.0, "payload": None}
+ASK_PRESET_QUESTIONS = ["现在能不能参与？", "风险大不大？", "当前是什么状态？"]
 
 
 def esc(value: object) -> str:
@@ -873,6 +874,182 @@ def render_current_decision_summary(
           </div>
         </div>
       </section>"""
+
+
+def _ask_answer_summary(answer: dict[str, object]) -> str:
+    final_answer = answer.get("final_answer") if isinstance(answer.get("final_answer"), dict) else {}
+    decision = answer.get("decision") if isinstance(answer.get("decision"), dict) else {}
+    regime = answer.get("regime") if isinstance(answer.get("regime"), dict) else {}
+    taxonomy = answer.get("taxonomy") if isinstance(answer.get("taxonomy"), dict) else {}
+    risk = answer.get("risk") if isinstance(answer.get("risk"), dict) else {}
+    reasoning = final_answer.get("reasoning") if isinstance(final_answer.get("reasoning"), list) else []
+    risk_notes = final_answer.get("risk_notes") if isinstance(final_answer.get("risk_notes"), list) else []
+    if not risk_notes and isinstance(risk.get("warnings"), list):
+        risk_notes = risk.get("warnings")  # type: ignore[assignment]
+    reasoning_items = "".join(f"<li>{esc(item)}</li>" for item in reasoning[:4])
+    risk_items = "".join(f"<li>{esc(item)}</li>" for item in risk_notes[:4])
+    if not reasoning_items:
+        reasoning_items = "<li>等待解释入库。</li>"
+    if not risk_items:
+        risk_items = "<li>暂无阻断性风险提示。</li>"
+    return f"""<div class="ask-answer-summary">
+            <strong>{esc(final_answer.get("headline") or "等待结论")}</strong>
+            <div class="ask-result-grid">
+              <span>评分 {esc(decision.get("score") if decision.get("score") is not None else "待入库")}</span>
+              <span>状态 {esc(regime.get("state") or "unknown")}</span>
+              <span>类型 {esc(taxonomy.get("type") or "unknown")}</span>
+              <span>置信度 {esc(final_answer.get("confidence") if final_answer.get("confidence") is not None else "待入库")}</span>
+            </div>
+            <div class="ask-answer-columns">
+              <div>
+                <span>依据</span>
+                <ul>{reasoning_items}</ul>
+              </div>
+              <div>
+                <span>风险</span>
+                <ul>{risk_items}</ul>
+              </div>
+            </div>
+          </div>"""
+
+
+def render_ask_widget(code: str, common_answers: list[dict[str, object]] | None = None) -> str:
+    api_path = f"/api/ask/{quote(code)}"
+    default_question = "现在能不能参与？"
+    answers = common_answers or []
+    common_items = "".join(
+        f"""<article class="ask-qa-item">
+          <h3>{esc(answer.get("question") or "常用问题")}</h3>
+          {_ask_answer_summary(answer)}
+        </article>"""
+        for answer in answers
+    )
+    if not common_items:
+        common_items = """<article class="ask-qa-item">
+          <h3>常用问题</h3>
+          <div class="ask-answer-summary"><strong>等待研究数据入库。</strong></div>
+        </article>"""
+    return f"""<section class="ask-widget" data-ask-widget aria-label="问这个ETF">
+        <div class="ask-heading-row">
+          <div>
+            <h2>问这个ETF</h2>
+            <p class="muted">统一结论、风险提示、状态依据</p>
+          </div>
+          <a class="code-link ask-api-link" href="{esc(api_path)}?q={quote(default_question)}">API</a>
+        </div>
+        <form class="ask-form" action="{esc(api_path)}" method="get">
+          <input type="search" name="q" value="{esc(default_question)}" aria-label="ETF问题" autocomplete="off">
+          <button type="submit">提问</button>
+        </form>
+        <div class="ask-common">
+          <div class="ask-common-heading">
+            <h3>常用问题</h3>
+          </div>
+          <div class="ask-common-list">{common_items}</div>
+        </div>
+        <div class="ask-result ask-result-empty" data-ask-result>等待自定义提问。</div>
+        <script>
+        (() => {{
+          const widgets = document.querySelectorAll("[data-ask-widget]");
+          for (const widget of widgets) {{
+            if (widget.dataset.bound === "1") continue;
+            widget.dataset.bound = "1";
+            const form = widget.querySelector(".ask-form");
+            const input = widget.querySelector("input[name='q']");
+            const result = widget.querySelector("[data-ask-result]");
+            const endpoint = form.getAttribute("action");
+            const textNode = (tag, className, text) => {{
+              const node = document.createElement(tag);
+              if (className) node.className = className;
+              node.textContent = text == null || text === "" ? "待入库" : String(text);
+              return node;
+            }};
+            const addList = (title, items) => {{
+              const wrap = document.createElement("div");
+              wrap.className = "ask-result-list";
+              wrap.appendChild(textNode("span", "", title));
+              const list = document.createElement("ul");
+              for (const item of items.slice(0, 4)) {{
+                const li = document.createElement("li");
+                li.textContent = String(item);
+                list.appendChild(li);
+              }}
+              wrap.appendChild(list);
+              return wrap;
+            }};
+            const renderAnswer = (payload) => {{
+              result.className = "ask-result";
+              const finalAnswer = payload.final_answer || {{}};
+              const conclusion = finalAnswer.conclusion || {{}};
+              const decision = payload.decision || {{}};
+              const regime = payload.regime || {{}};
+              const taxonomy = payload.taxonomy || {{}};
+              const head = document.createElement("div");
+              head.className = "ask-result-head";
+              const title = textNode("strong", "", finalAnswer.headline || "等待结论");
+              const badge = textNode("span", "ask-result-badge", conclusion.type || "unknown");
+              head.appendChild(title);
+              head.appendChild(badge);
+              const grid = document.createElement("div");
+              grid.className = "ask-result-grid";
+              grid.appendChild(textNode("span", "", `评分 ${{decision.score ?? "待入库"}}`));
+              grid.appendChild(textNode("span", "", `状态 ${{regime.state || "unknown"}}`));
+              grid.appendChild(textNode("span", "", `类型 ${{taxonomy.type || "unknown"}}`));
+              grid.appendChild(textNode("span", "", `置信度 ${{finalAnswer.confidence ?? "待入库"}}`));
+              result.replaceChildren(head, grid);
+              if (Array.isArray(finalAnswer.reasoning) && finalAnswer.reasoning.length) {{
+                result.appendChild(addList("依据", finalAnswer.reasoning));
+              }}
+              if (Array.isArray(finalAnswer.risk_notes) && finalAnswer.risk_notes.length) {{
+                result.appendChild(addList("风险", finalAnswer.risk_notes));
+              }}
+            }};
+            const ask = async (question) => {{
+              const trimmed = String(question || "").trim();
+              if (!trimmed) return;
+              result.className = "ask-result ask-result-empty";
+              result.textContent = "生成中...";
+              try {{
+                const response = await fetch(`${{endpoint}}?q=${{encodeURIComponent(trimmed)}}`, {{
+                  headers: {{ Accept: "application/json" }},
+                }});
+                const payload = await response.json();
+                renderAnswer(payload);
+              }} catch (error) {{
+                result.className = "ask-result ask-result-error";
+                result.textContent = "暂时无法生成结论。";
+              }}
+            }};
+            form.addEventListener("submit", (event) => {{
+              event.preventDefault();
+              ask(input.value);
+            }});
+          }}
+        }})();
+        </script>
+      </section>"""
+
+
+def build_common_ask_answers(
+    *,
+    code: str,
+    decision_signal: dict[str, object],
+    taxonomy_profile: dict[str, object],
+    market_regime: dict[str, object],
+    governance_report: dict[str, object],
+) -> list[dict[str, object]]:
+    interpreter = DecisionInterpreter()
+    return [
+        interpreter.interpret(
+            code,
+            question,
+            decision_signal=decision_signal,
+            taxonomy_profile=taxonomy_profile,
+            market_regime=market_regime,
+            governance_report=governance_report,
+        )
+        for question in ASK_PRESET_QUESTIONS
+    ]
 
 
 def xueqiu_url_for_code(code: object, preferred_url: object | None = None) -> str:
@@ -2414,6 +2591,19 @@ def render_etf_page(code: str) -> bytes:
         taxonomy_profile=taxonomy_profile,
         valuation_signal=valuation_signal,
     )
+    health_payload = research_health_payload()
+    governance_report = (
+        health_payload.get("health_report")
+        if isinstance(health_payload.get("health_report"), dict)
+        else {}
+    )
+    common_ask_answers = build_common_ask_answers(
+        code=code,
+        decision_signal=adaptive_decision_signal,
+        taxonomy_profile=taxonomy_profile,
+        market_regime=market_regime_v2,
+        governance_report=governance_report,
+    )
     current_price = _display_current_price(latest if latest else None, price_cache_for_display, market)
     rating_label = (
         f"{leader['deep_rating'] or ''} {leader['deep_label'] or ''}".strip()
@@ -2454,6 +2644,7 @@ def render_etf_page(code: str) -> bytes:
           </div>
         </div>
         {render_current_decision_summary(decision_matrix, valuation_signal, adaptive_decision_signal, current_price)}
+        {render_ask_widget(code, common_ask_answers)}
         <div class="summary-grid">
           {metric("深研分", leader["deep_score"] if leader is not None else None)}
           {metric("当前价格", current_price)}
