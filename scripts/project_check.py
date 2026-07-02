@@ -34,7 +34,15 @@ def main() -> int:
     except FileNotFoundError:
         ok &= check(False, "git is available")
 
-    for module in ["myinvestetf.db", "myinvestetf.leader_index", "myinvestetf.web", "core.market", "core.risk", "core.taxonomy"]:
+    for module in [
+        "myinvestetf.db",
+        "myinvestetf.leader_index",
+        "myinvestetf.web",
+        "core.market",
+        "core.risk",
+        "core.taxonomy",
+        "core.factors",
+    ]:
         try:
             importlib.import_module(module)
             ok &= check(True, f"import {module}")
@@ -63,6 +71,8 @@ def main() -> int:
     ok &= check((ROOT / "core" / "market" / "regime.py").exists(), "ETF market regime layer exists")
     ok &= check((ROOT / "core" / "risk" / "drawdown.py").exists(), "ETF drawdown layer exists")
     ok &= check((ROOT / "core" / "taxonomy" / "etf_classifier.py").exists(), "ETF taxonomy classifier exists")
+    ok &= check((ROOT / "core" / "factors" / "standardization.py").exists(), "ETF factor standardization layer exists")
+    ok &= check((ROOT / "core" / "factors" / "ic.py").exists(), "ETF factor IC layer exists")
     queue_prompt_doc = ROOT / "docs" / "QUEUE_PROMPTS.md"
     queue_script = (ROOT / "scripts" / "generate_single_etf_prompt.py").read_text(encoding="utf-8")
     ok &= check(queue_prompt_doc.exists(), "ETF queue prompt contract is documented")

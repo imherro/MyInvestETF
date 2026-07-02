@@ -12,6 +12,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from core.factors import (
+    build_factor_exposure,
+    compute_factor_ic,
+    factor_definition_to_dict,
+    factor_exposure_to_dict,
+    factor_ic_summary_to_dict,
+    get_factor_definition,
+)
 from core.market import build_market_context, market_context_to_dict
 from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
@@ -945,9 +953,33 @@ def api_catalog(base_url: str) -> dict[str, object]:
         },
         {
             "name": "分析结果",
-            "description": "当前完整深研结果和类型化估值输出。",
+            "description": "当前完整深研结果、类型化估值输出和因子分析。",
             "endpoints": [
                 _api_endpoint("GET", "/api/latest", "对外研究成果接口，汇总所有 ETF 的最新深研、参考价格历史和决策矩阵。", [], "myinvestetf.research.v2 JSON。", True),
+                _api_endpoint(
+                    "GET",
+                    "/api/factors/{etf}",
+                    "返回单只 ETF 的 point-in-time 标准化因子暴露。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "taxonomy_profile 与 factor_exposure。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/api/factors/exposure/{etf}",
+                    "返回单只 ETF 的 factor exposure，作为 /api/factors/{etf} 的显式别名。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "taxonomy_profile 与 factor_exposure。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/api/factors/ic/{factor}",
+                    "返回单个因子的 5/20/60 日 IC 摘要。",
+                    [{"name": "factor", "in": "path", "required": True, "description": "因子名，例如 price_momentum_20。"}],
+                    "factor definition 与 IC summaries。",
+                    True,
+                ),
             ],
         },
         {
@@ -978,6 +1010,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/queue", "reason": "读取当前待研究队列。"},
             {"path": "/api/etfs/{code}", "reason": "读取单只 ETF 详情、taxonomy、历史和队列状态。"},
             {"path": "/api/etf/{code}/profile", "reason": "读取单只 ETF taxonomy profile。"},
+            {"path": "/api/factors/{etf}", "reason": "读取单只 ETF 标准化因子暴露。"},
         ],
         "safety": {
             "api_catalog_read_only": True,
@@ -1450,6 +1483,56 @@ def render_taxonomy_profile(profile: dict[str, object] | None) -> str:
           {signal_item("兼容五仓角色", profile.get("legacy_sleeve_key"))}
         </div>
         <ul class="risk-list">{reason_items or '<li>等待分类依据入库。</li>'}</ul>
+      </section>"""
+
+
+def factor_exposure_from_prices(code: str, prices: list[object] | None, taxonomy_profile: dict[str, object] | None) -> dict[str, object]:
+    return factor_exposure_to_dict(
+        build_factor_exposure(
+            etf_code=code,
+            price_series=prices or [],
+            taxonomy_profile=taxonomy_profile,
+            lag_days=1,
+        )
+    )
+
+
+def render_factor_exposure(exposure: dict[str, object] | None) -> str:
+    exposure = exposure or {}
+    factors = exposure.get("factors")
+    factor_items = factors if isinstance(factors, list) else []
+    if not factor_items:
+        return """<section class="section-block">
+        <h2>因子暴露</h2>
+        <p class="empty">本地行情不足，暂未生成标准化因子。</p>
+      </section>"""
+    rows = "".join(
+        f"""<tr>
+      <td>{esc(item.get('factor_name'))}</td>
+      <td>{esc(item.get('factor_type'))}</td>
+      <td>{fmt_num(item.get('raw_value'), 6)}</td>
+      <td>{fmt_num(item.get('z_score'), 4)}</td>
+      <td>{fmt_percentile(item.get('percentile'))}</td>
+      <td>{esc(item.get('as_of_date'))}</td>
+    </tr>"""
+        for item in factor_items
+        if isinstance(item, dict)
+    )
+    attribution = exposure.get("attribution")
+    attribution_text = "；".join(
+        f"{name} {fmt_ratio_percent(weight)}"
+        for name, weight in (attribution.items() if isinstance(attribution, dict) else [])
+    )
+    return f"""<section class="section-block">
+        <h2>因子暴露</h2>
+        <p class="muted">因子采用 point-in-time lag 1，对齐到 {esc(exposure.get('as_of_date') or '待入库')}；当前仅展示标准化暴露，不改变现有评分。</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>因子</th><th>类型</th><th>原始值</th><th>Z分</th><th>分位</th><th>as_of_date</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+        <p class="signal-note">因子贡献占比：{esc(attribution_text or '待入库')}</p>
       </section>"""
 
 
@@ -2081,6 +2164,7 @@ def render_etf_page(code: str) -> bytes:
     decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
     price_cache_for_display = chart_prices or context_prices
     market_context = market_context_from_prices(code, context_prices)
+    factor_exposure = factor_exposure_from_prices(code, context_prices, taxonomy_profile)
     current_price = _display_current_price(latest if latest else None, price_cache_for_display, market)
     rating_label = (
         f"{leader['deep_rating'] or ''} {leader['deep_label'] or ''}".strip()
@@ -2138,6 +2222,7 @@ def render_etf_page(code: str) -> bytes:
       {queue_status_section}
       {signal_matrix_section}
       {render_taxonomy_profile(taxonomy_profile)}
+      {render_factor_exposure(factor_exposure)}
       {render_market_context(market_context)}
       {render_valuation_chart(chart_runs, chart_prices)}
       {render_reference_price_explanation(latest if latest else None, valuation_signal)}
@@ -2366,6 +2451,68 @@ def api_etf_profile(code: str) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
+def api_factors_for_etf(code: str) -> bytes:
+    with closing(connect(DB_PATH)) as conn:
+        leader = get_latest_leader(conn, code) or get_known_leader(conn, code)
+        runs = rows_to_dicts(list_research_runs(conn, code))
+        queue = rows_to_dicts(list_queue_for_etf(conn, code))
+        prices = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
+    latest = next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)
+    fallback_name = _first_queue_name(queue, code) if queue else code
+    taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest, fallback_name=fallback_name)
+    exposure = factor_exposure_from_prices(code, prices, taxonomy_profile)
+    payload = {
+        "schema_version": "myinvestetf.factor_exposure.v1",
+        "code": code,
+        "taxonomy_profile": taxonomy_profile,
+        "factor_exposure": exposure,
+        "constraints": {
+            "read_only": True,
+            "research_only": True,
+            "point_in_time": True,
+            "contains_trade_orders": False,
+            "contains_cash_amounts": False,
+            "contains_share_counts": False,
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
+def api_factor_ic(factor_name: str) -> bytes:
+    definition = get_factor_definition(factor_name)
+    if definition is None:
+        return json.dumps(
+            {
+                "schema_version": "myinvestetf.factor_ic.v1",
+                "factor": factor_name,
+                "error": "unknown_factor",
+                "constraints": {"read_only": True},
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+    with closing(connect(DB_PATH)) as conn:
+        leaders = list_latest_leaders(conn)
+        price_series_by_code = {
+            str(row["code"]): list_daily_prices(conn, str(row["code"]), start_date=BULL_MARKET_START_DATE)
+            for row in leaders
+        }
+    summaries = [factor_ic_summary_to_dict(item) for item in compute_factor_ic(definition, price_series_by_code)]
+    payload = {
+        "schema_version": "myinvestetf.factor_ic.v1",
+        "factor": factor_definition_to_dict(definition),
+        "summaries": summaries,
+        "constraints": {
+            "read_only": True,
+            "research_only": True,
+            "point_in_time": True,
+            "contains_trade_orders": False,
+            "contains_cash_amounts": False,
+            "contains_share_counts": False,
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
 def api_queue() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         rows = rows_to_dicts(list_queue(conn))
@@ -2510,6 +2657,18 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/queue":
             self.send_bytes(api_queue(), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/factors/ic/"):
+            factor_name = path.removeprefix("/api/factors/ic/").strip()
+            self.send_bytes(api_factor_ic(factor_name), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/factors/exposure/"):
+            code = path.removeprefix("/api/factors/exposure/").upper()
+            self.send_bytes(api_factors_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/factors/"):
+            code = path.removeprefix("/api/factors/").upper()
+            self.send_bytes(api_factors_for_etf(code), "application/json; charset=utf-8")
             return
         if path.startswith("/api/etf/") and path.endswith("/profile"):
             code = path.removeprefix("/api/etf/").removesuffix("/profile").strip("/").upper()

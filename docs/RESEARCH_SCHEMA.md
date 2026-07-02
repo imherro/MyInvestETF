@@ -96,6 +96,21 @@ BLOCKED -> FAILED
 
 系统会从 ETF 元数据、跟踪指数、资产类别、行业/主题暴露、波动和流动性线索生成 `taxonomy_profile`。所有 ETF 评分必须绑定 taxonomy，但 taxonomy 不直接改写当前 signal。
 
+## Factor Output
+
+标准化因子不写入 `ETFResearchReport` 强 schema，当前通过 `/api/factors/*` 暴露。每个因子输出必须包含：
+
+- `raw_value`
+- `normalized_value`
+- `z_score`
+- `percentile`
+- `as_of_date`
+- `lookback_window`
+- `source`
+- `leakage_guard`
+
+所有因子默认使用 point-in-time lag 1，禁止用 forward return 窗口内的数据计算因子本身。
+
 `model_specific_inputs` 按类型分流：
 
 - `broad_index`: `equity_risk_premium`, `roe`, `market_position_score`

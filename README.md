@@ -24,6 +24,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 参考价值区间和 signal 由 `core/valuation` 的确定性评分引擎生成，LLM 只负责构建输入和解释，不负责最终计算。
 - 市场状态和回撤由 `core/market`、`core/risk` 旁路生成，只作为研究上下文展示；当前版本不改变既有 ETF 类型化评分。
 - ETF taxonomy 由 `core/taxonomy` 旁路生成，只增强产品分类、队列路由和 API profile；当前版本不改变既有 signal。
+- 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；当前版本只展示因子暴露和 IC，不改最终评分。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
 - 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
@@ -109,6 +110,17 @@ myinvestetf/web.py
 - `drawdown.duration_days`: 从本轮高点以来的交易日数。
 
 该层用于解释“当前是追涨、轮动、风险收缩还是冲击下跌”，并为后续状态机评分和回测提供上下文。它不直接给出买卖建议，也不在本版本改变 `ETFValuationSignal` 分数。
+
+## 因子标准化与 IC
+
+`core/factors` 提供四层能力：
+
+- Factor Standardization：输出 `raw_value`、`normalized_value`、`z_score`、`percentile`、`as_of_date`、`lookback_window`、`source`、`leakage_guard`。
+- Point-in-Time：默认使用 `point_in_time_lag_1`，避免用最新未知数据计算当前因子。
+- IC Analysis：计算因子相对 5/20/60 日 forward return 的 IC 摘要。
+- Factor Registry：按 taxonomy 选择可用因子集合。
+
+当前内置因子包括 `price_momentum_20`、`price_momentum_60`、`volatility_20`、`drawdown_current`、`liquidity_trend_20`。这些因子只用于研究暴露、归因和 IC 验证，不直接改写 `ETFValuationSignal`。
 
 ## 完整深研任务
 
@@ -221,5 +233,8 @@ python -m pytest tests -q
 - `/api/etfs`：当前 ETF 列表。
 - `/api/etfs/{code}`：单只 ETF 研究数据、`taxonomy_profile`、`market_context`、队列状态和历史。
 - `/api/etf/{code}/profile`：单只 ETF taxonomy profile。
+- `/api/factors/{etf}`：单只 ETF 标准化因子暴露。
+- `/api/factors/exposure/{etf}`：单只 ETF 因子暴露显式别名。
+- `/api/factors/ic/{factor}`：单个因子的 5/20/60 日 IC 摘要。
 
 接口目录按“文档入口、Web 页面、当前数据、历史数据、分析结果、系统状态”分组。`/api` 只返回说明，不触发重计算、写入、交易、同步或外部请求；所有 `/api/*` 数据接口只读取本地结果。`/research` 是 Web 主动研究入口，可能写入本地研究队列，因此在目录中会单独标记为非只读公开路由。

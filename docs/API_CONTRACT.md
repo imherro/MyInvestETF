@@ -114,6 +114,46 @@ http://127.0.0.1:8017
 
 该接口只读，不触发队列写入、重估值或交易动作。
 
+## `/api/factors/{etf}`
+
+用途：输出单只 ETF 的 point-in-time 标准化因子暴露。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.factor_exposure.v1`
+- `taxonomy_profile`
+- `factor_exposure.as_of_date`
+- `factor_exposure.selected_factor_names`
+- `factor_exposure.factors[]`
+- `factor_exposure.factors[].raw_value`
+- `factor_exposure.factors[].normalized_value`
+- `factor_exposure.factors[].z_score`
+- `factor_exposure.factors[].percentile`
+- `factor_exposure.factors[].as_of_date`
+- `factor_exposure.factors[].lookback_window`
+- `factor_exposure.factors[].source`
+- `factor_exposure.factors[].leakage_guard`
+- `factor_exposure.attribution`
+
+`/api/factors/exposure/{etf}` 是同一输出的显式别名。
+
+## `/api/factors/ic/{factor}`
+
+用途：输出单个因子的 IC 摘要。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.factor_ic.v1`
+- `factor`: 因子定义，包括 `name`、`factor_type`、`category`、`lookback_window`、`source`、`valid_universe`
+- `summaries[]`: 5/20/60 日 IC 摘要
+- `summaries[].ic_mean`
+- `summaries[].ic_std`
+- `summaries[].ic_decay`
+- `summaries[].observations`
+- `summaries[].leakage_guard`
+
+该接口只读，只基于本地 `etf_daily_prices` 计算，不触发写入或重估值。
+
 ## 约束
 
 所有接口只读，不包含交易指令、现金金额或份额数量。

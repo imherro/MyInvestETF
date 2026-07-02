@@ -64,6 +64,7 @@ Research 必须回答：
 - 净值、价格、折溢价、底层指数 PE/PB、估值分位和类型化 `model_specific_inputs`。
 - ETF taxonomy；所有 ETF 评分必须绑定 taxonomy，不能只按旧四类估值模型解释。
 - ETF 日行情和底层指数日行情；如可取得，写入 `assembly_input.price_series` 和 `assembly_input.index_price_series`，由系统生成市场状态与回撤。
+- 标准化因子只由系统计算，必须保留 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`，不得在提示词中手工编造。
 - 跟踪质量、流动性、证伪条件和组合角色。
 
 执行流程：
@@ -76,6 +77,7 @@ python scripts/import_research_run.py temp/reports/{code}_research_{basis_date}.
 LLM 只能负责收集、清洗、归一化输入和解释脚本输出，不能重新计算参考价值区间、signal、grade、`report_hash` 或 `run_id`。
 taxonomy_profile 由系统根据 ETF 元数据、跟踪指数、行业/主题暴露、波动和流动性线索生成；LLM 只能提供证据，不手写最终分类结论。
 市场状态 `market_context.regime` 与回撤 `market_context.drawdown` 也由系统根据行情序列生成；LLM 不手写这些最终字段。
+factor exposure 与 IC 由 `core/factors` 根据本地行情计算；LLM 只提供数据来源和缺口说明。
 
 ## 类型化研究依据
 
