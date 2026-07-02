@@ -1183,9 +1183,10 @@ def mark_queue_status(
         rows = list(
             conn.execute(
                 """
-                SELECT DISTINCT run_id
-                FROM research_queue
-                WHERE code = ? AND task_type = ? AND report_id = ? AND run_id IS NOT NULL
+                SELECT DISTINCT q.run_id, t.status
+                FROM research_queue q
+                JOIN task_queue t ON t.run_id = q.run_id
+                WHERE q.code = ? AND q.task_type = ? AND q.report_id = ? AND q.run_id IS NOT NULL
                 """,
                 (code, task_type, report_id),
             )
@@ -1194,15 +1195,19 @@ def mark_queue_status(
         rows = list(
             conn.execute(
                 """
-                SELECT DISTINCT run_id
-                FROM research_queue
-                WHERE code = ? AND task_type = ? AND run_id IS NOT NULL
+                SELECT DISTINCT q.run_id, t.status
+                FROM research_queue q
+                JOIN task_queue t ON t.run_id = q.run_id
+                WHERE q.code = ? AND q.task_type = ? AND q.run_id IS NOT NULL
                 """,
                 (code, task_type),
             )
         )
     target = queue_status_to_task_status(status)
     for row in rows:
+        current = TaskStatus(row["status"])
+        if current == TaskStatus.PENDING and target == TaskStatus.DONE:
+            transition_task_status(conn, run_id=row["run_id"], target=TaskStatus.RUNNING)
         transition_task_status(conn, run_id=row["run_id"], target=target)
 
 

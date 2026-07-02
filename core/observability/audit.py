@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from statistics import mean, pstdev
 from typing import Any, Iterable
 
-from .trace import TRACE_STAGES, TraceEvent
+from .trace import REQUIRED_TRACE_STAGES, TRACE_STAGES, TraceEvent
 
 
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -108,7 +108,7 @@ def verify_run(conn: sqlite3.Connection, run_id: str, expected_report_hash: str 
         if not HASH_RE.match(row["input_hash"]) or not HASH_RE.match(row["output_hash"]):
             return False
 
-    if any(not by_stage[stage] for stage in TRACE_STAGES):
+    if any(not by_stage[stage] for stage in REQUIRED_TRACE_STAGES):
         return False
 
     for stage, stage_rows in by_stage.items():

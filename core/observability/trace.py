@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-TRACE_STAGES = ("feature", "valuation", "signal", "report")
+TRACE_STAGES = ("feature", "taxonomy", "market_context", "valuation", "signal", "report")
+REQUIRED_TRACE_STAGES = ("feature", "valuation", "signal", "report")
 
 
 @dataclass(frozen=True)
