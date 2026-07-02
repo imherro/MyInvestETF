@@ -36,6 +36,7 @@ from myinvestetf.web import (
     decision_matrix_summary,
     leader_to_summary,
     openapi_json,
+    portfolio_use_view,
     render_api_overview,
     render_ask_widget,
     render_current_decision_summary,
@@ -787,9 +788,14 @@ class ETFContractTests(unittest.TestCase):
         html = render_etf_cards([leader], {"510210.SH": research}, {"510210.SH": prices})
         self.assertIn("当前价格", html)
         self.assertIn("参考中枢", html)
-        self.assertIn("底仓资格", html)
-        self.assertIn("工具仓可用", html)
+        self.assertIn("组合使用判断", html)
+        self.assertIn("阶段性工具仓可用，不等于当前买入", html)
         self.assertNotIn("PE TTM", html)
+
+    def test_portfolio_use_view_expands_tool_position_language(self) -> None:
+        self.assertEqual(portfolio_use_view("工具仓可用"), "阶段性工具仓可用，不等于当前买入")
+        self.assertEqual(portfolio_use_view("底仓候选"), "底仓候选，仍需结合估值和市场状态")
+        self.assertEqual(portfolio_use_view(""), "待入库")
 
     def test_market_context_section_renders_drawdown_state(self) -> None:
         html = render_market_context(

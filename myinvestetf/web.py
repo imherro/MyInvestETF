@@ -612,6 +612,20 @@ def decision_matrix_summary(
     }
 
 
+def portfolio_use_view(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "待入库"
+    display = {
+        "工具仓可用": "阶段性工具仓可用，不等于当前买入",
+        "底仓候选": "底仓候选，仍需结合估值和市场状态",
+        "估值或拥挤暂缓": "估值或拥挤暂缓，等待风险释放",
+        "观察": "观察，等待证据更清晰",
+        "不适合底仓": "不适合底仓",
+    }
+    return display.get(text, text)
+
+
 def score_state(value: object, *, kind: str = "default") -> str:
     number = _num(value)
     if number is None:
@@ -772,6 +786,11 @@ def metric_explanation(label: str, value: object) -> tuple[str, str]:
             "入口估值安全度",
             f"{score_state(value, kind='valuation_safety')}。分数越高，表示入口筛选看估值越不紧张；最终参考区间以ETF完整深研为准。",
         )
+    if label == "组合使用判断":
+        return (
+            "组合使用判断",
+            "说明这只ETF更适合作为长期底仓、阶段性工具、继续观察，还是暂缓；它不是买卖指令。",
+        )
     return ("指标说明", "入口展示指标，用于辅助筛选和跟踪。")
 
 
@@ -790,6 +809,8 @@ def metric_signal(label: str, value: object) -> tuple[str, str]:
         return score_signal(value, kind="evidence_quality")
     if label == "估值安全":
         return score_signal(value, kind="valuation_safety")
+    if label == "组合使用判断":
+        return "neutral", "研究判断"
     return "neutral", "参考"
 
 
@@ -1423,6 +1444,7 @@ def render_etf_cards(
         current_price = _display_current_price(latest, prices_by_code.get(code, []), market)
         reference_mid = _row_value(latest, "valuation_mid") if latest is not None else None
         position_view = _row_value(latest, "heavy_position_view") if latest is not None else None
+        position_view_display = portfolio_use_view(position_view)
         cards.append(
             f"""<article class="etf-card">
         <div class="etf-card-top">
@@ -1443,7 +1465,7 @@ def render_etf_cards(
           {compact_metric("深研", _row_value(row, "deep_score"))}
           {compact_metric("当前价格", current_price)}
           {compact_metric("参考中枢", reference_mid)}
-          {compact_metric("底仓资格", position_view)}
+          {compact_metric("组合使用判断", position_view_display)}
         </div>
       </article>"""
         )
@@ -2622,7 +2644,7 @@ def render_etf_page(code: str) -> bytes:
       <td>{esc(row['status'])}</td>
       <td>{esc(row['valuation_method'] or '待入库')}</td>
       <td>{fmt_num(row['valuation_low'])} / {fmt_num(row['valuation_mid'])} / {fmt_num(row['valuation_high'])}</td>
-      <td>{esc(row['heavy_position_view'] or '待入库')}</td>
+      <td>{esc(portfolio_use_view(row['heavy_position_view']))}</td>
     </tr>"""
         for row in runs
     )
@@ -2697,8 +2719,8 @@ def render_etf_page(code: str) -> bytes:
           <p>{esc(latest.get('multi_bagger_potential') or '等待ETF完整深研入库。')}</p>
         </div>
         <div class="section-block">
-          <h2>底仓/工具仓资格</h2>
-          <p>{esc(decision_matrix.get('conclusion') or latest.get('heavy_position_view') or '等待ETF完整深研入库。')}</p>
+          <h2>组合使用判断</h2>
+          <p>{esc(decision_matrix.get('conclusion') or portfolio_use_view(latest.get('heavy_position_view')) or '等待ETF完整深研入库。')}</p>
         </div>
       </section>
       <section class="section-block">
@@ -2709,7 +2731,7 @@ def render_etf_page(code: str) -> bytes:
         <h2>研究历史</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>日期</th><th>类型</th><th>状态</th><th>估值方法</th><th>参考价格低 / 中枢 / 高</th><th>底仓资格</th></tr></thead>
+            <thead><tr><th>日期</th><th>类型</th><th>状态</th><th>估值方法</th><th>参考价格低 / 中枢 / 高</th><th>组合使用判断</th></tr></thead>
             <tbody>{history_rows}</tbody>
           </table>
         </div>
