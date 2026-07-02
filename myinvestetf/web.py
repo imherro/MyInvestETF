@@ -819,6 +819,61 @@ def compact_metric(label: str, value: object, unit: str = "") -> str:
     </div>"""
 
 
+def render_current_decision_summary(
+    decision_matrix: dict[str, object],
+    valuation_signal: dict[str, object],
+    adaptive_decision_signal: dict[str, object],
+    current_price: object,
+) -> str:
+    posture = decision_matrix.get("posture") or "待完整深研"
+    conclusion = (
+        decision_matrix.get("conclusion")
+        or valuation_signal.get("explanation")
+        or "等待ETF完整深研入库。"
+    )
+    valuation_label = valuation_signal.get("label") or "等待ETF估值"
+    valuation_range = valuation_signal.get("valuation_range") if isinstance(valuation_signal.get("valuation_range"), dict) else {}
+    range_text = " / ".join(
+        [
+            fmt_num(valuation_range.get("low")),
+            fmt_num(valuation_range.get("mid")),
+            fmt_num(valuation_range.get("high")),
+        ]
+    )
+    state = adaptive_decision_signal.get("state") if isinstance(adaptive_decision_signal.get("state"), dict) else {}
+    state_code = state.get("state_code") if isinstance(state, dict) else None
+    score = adaptive_decision_signal.get("score")
+    confidence = adaptive_decision_signal.get("confidence")
+    state_label = state_code or "待入库"
+    score_hint = f"Decision {fmt_num(score)} / 置信度 {fmt_ratio_percent(confidence)}"
+    return f"""<section class="decision-hero" aria-label="当前研究结论">
+        <div class="decision-hero-main">
+          <span>当前研究结论</span>
+          <strong>{esc(posture)}</strong>
+          <p>{esc(conclusion)}</p>
+        </div>
+        <div class="decision-hero-grid">
+          <div>
+            <span>估值状态</span>
+            <strong>{esc(valuation_label)}</strong>
+          </div>
+          <div>
+            <span>当前价格</span>
+            <strong>{fmt_num(current_price)}</strong>
+          </div>
+          <div>
+            <span>参考低 / 中 / 高</span>
+            <strong>{esc(range_text)}</strong>
+          </div>
+          <div>
+            <span>状态机</span>
+            <strong>{esc(state_label)}</strong>
+            <small>{esc(score_hint)}</small>
+          </div>
+        </div>
+      </section>"""
+
+
 def xueqiu_url_for_code(code: object, preferred_url: object | None = None) -> str:
     if preferred_url:
         return str(preferred_url)
@@ -2385,6 +2440,7 @@ def render_etf_page(code: str) -> bytes:
             <span>{esc(report_date)}</span>
           </div>
         </div>
+        {render_current_decision_summary(decision_matrix, valuation_signal, adaptive_decision_signal, current_price)}
         <div class="summary-grid">
           {metric("深研分", leader["deep_score"] if leader is not None else None)}
           {metric("当前价格", current_price)}

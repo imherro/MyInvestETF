@@ -278,6 +278,69 @@ h2 {
   margin-top: 20px;
 }
 
+.decision-hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.15fr) minmax(420px, 1fr);
+  gap: 14px;
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.decision-hero-main {
+  min-width: 0;
+}
+
+.decision-hero-main span,
+.decision-hero-grid span,
+.decision-hero-grid small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.decision-hero-main strong {
+  display: block;
+  margin: 4px 0 6px;
+  color: #1d4ed8;
+  font-size: 24px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.decision-hero-main p {
+  margin: 0;
+  color: #1f2937;
+}
+
+.decision-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.decision-hero-grid > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.decision-hero-grid strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.decision-hero-grid small {
+  margin-top: 4px;
+}
+
 .metric {
   position: relative;
   min-height: 68px;
@@ -854,6 +917,7 @@ tr:last-child td {
   .etf-grid,
   .two-col,
   .summary-grid,
+  .decision-hero,
   .signal-matrix,
   .signal-grid,
   .reference-formula-grid,
@@ -862,7 +926,8 @@ tr:last-child td {
   }
 
   .card-grid,
-  .compact-metrics {
+  .compact-metrics,
+  .decision-hero-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -909,5 +974,9 @@ tr:last-child td {
 
   .compact-metric strong {
     font-size: 16px;
+  }
+
+  .decision-hero-grid {
+    grid-template-columns: 1fr;
   }
 }

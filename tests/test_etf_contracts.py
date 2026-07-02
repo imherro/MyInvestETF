@@ -35,6 +35,7 @@ from myinvestetf.web import (
     leader_to_summary,
     openapi_json,
     render_api_overview,
+    render_current_decision_summary,
     render_etf_cards,
     render_market_context,
     render_reference_price_explanation,
@@ -804,6 +805,31 @@ class ETFContractTests(unittest.TestCase):
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})
         self.assertEqual(matrix["posture"], "底仓候选")
         self.assertIn("底仓候选", matrix["conclusion"])
+
+    def test_current_decision_summary_surfaces_page_conclusion(self) -> None:
+        html = render_current_decision_summary(
+            {
+                "posture": "工具仓跟踪",
+                "conclusion": "上游/产品信号强，但估值、拥挤或流动性仍需观察，更适合作为工具仓跟踪",
+            },
+            {
+                "label": "ETF估值或拥挤压力较高",
+                "valuation_range": {"low": 4.360868, "mid": 4.740074, "high": 5.11928},
+            },
+            {
+                "score": 74.97408,
+                "confidence": 0.791369,
+                "state": {"state_code": "risk_on:strong:uptrend"},
+            },
+            4.998,
+        )
+
+        self.assertIn("当前研究结论", html)
+        self.assertIn("工具仓跟踪", html)
+        self.assertIn("更适合作为工具仓跟踪", html)
+        self.assertIn("参考低 / 中 / 高", html)
+        self.assertIn("4.36 / 4.74 / 5.12", html)
+        self.assertIn("risk_on:strong:uptrend", html)
 
     def test_report_meta_requires_report_id(self) -> None:
         with self.assertRaises(ValueError):

@@ -29,6 +29,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
 - 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
 - 研究治理由 `core/governance` 生成，输出数据完整性、因子有效性、regime 稳定性、报告质量和系统健康分，用来判断研究结果是否可信、是否应被 gate 阻断。
+- 自然语言决策解释由 `core/interpreter` 生成，把已有 `DecisionSignal + taxonomy + governance` 翻译成结构化解释；该层只读，不查库、不重算、不输出买卖动作、现金金额或份额数量。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
 - 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
@@ -75,6 +76,10 @@ myinvestetf/web.py
   /api/replay        单只 ETF 历史评分回放
   /api/health        系统研究健康度与治理 gate
   /api/queue         本地队列
+
+core/interpreter
+  DecisionInterpreter
+        把现有结构化研究输出转成“是否适合参与”的只读结构化解释
 ```
 
 ## ETF 类型化研究依据
@@ -160,6 +165,19 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 基础权重随市场状态变化：`risk_on` 更重动量和流动性，`risk_off` 更重估值和风险，`shock` 更重风险和流动性，`rotation` 保持均衡。taxonomy 会二次调整权重，例如主线主题更重动量和流动性，核心宽基更重估值和风险，收益防御策略更重估值质量和风险稳定性。
 
 该层只用于“解释 + 评分 + 状态驱动权重”，不输出买卖动作、仓位比例、现金金额、份额数量，也不执行 rebalance。
+
+## 自然语言决策解释层
+
+`core/interpreter` 提供 `DecisionInterpreter`，把既有 `DecisionSignal`、taxonomy profile 和治理健康度转换为结构化解释：
+
+- `regime`: 市场状态和置信度。
+- `taxonomy`: ETF 类型和子类。
+- `decision`: 评分、`low | medium | high` 评分带和方向偏向。
+- `explanation`: 结构化原因列表。
+- `risk`: regime 稳定性、数据质量和治理警告。
+- `final_answer`: 面向人的概率性解释。
+
+该层当前是核心类，不是 Web API；它不读取数据库、不触发同步、不重算估值、不写入队列，也不输出交易指令、现金金额或份额数量。
 
 ## 决策回放与稳定性
 
