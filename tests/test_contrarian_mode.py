@@ -31,6 +31,8 @@ class ContrarianModeTests(unittest.TestCase):
 
         self.assertTrue(payload["enabled"])
         self.assertEqual(payload["final_view"], "probabilistic_bottom_zone")
+        self.assertTrue(payload["conditions"]["volatility_stress"])
+        self.assertTrue(payload["conditions"]["governance_allowed"])
         self.assertGreater(payload["reversal_probability"], 0.70)
         self.assertEqual(payload["adjusted_interpretation"]["original_decision_score"], 60.0)
         self.assertTrue(payload["constraints"]["does_not_override_decision_score"])
@@ -55,6 +57,8 @@ class ContrarianModeTests(unittest.TestCase):
         self.assertFalse(payload["enabled"])
         self.assertEqual(payload["conditions"]["drawdown_extreme"], True)
         self.assertEqual(payload["conditions"]["regime_stress"], False)
+        self.assertEqual(payload["conditions"]["volatility_stress"], False)
+        self.assertEqual(payload["conditions"]["governance_allowed"], True)
         self.assertEqual(payload["final_view"], "normal")
         self.assertEqual(payload["adjusted_interpretation"]["risk_adjusted_score"], 60.0)
 

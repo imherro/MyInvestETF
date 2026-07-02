@@ -869,20 +869,38 @@ class ETFContractTests(unittest.TestCase):
             {
                 "enabled": True,
                 "scores": {"reversal_probability": 0.72, "exhaustion_score": 0.81, "capitulation_score": 0.68},
-                "conditions": {"drawdown_extreme": True, "regime_stress": True, "liquidity_stress": False},
+                "conditions": {
+                    "drawdown_extreme": True,
+                    "regime_stress": True,
+                    "liquidity_stress": False,
+                    "volatility_stress": True,
+                    "governance_allowed": True,
+                },
                 "adjusted_interpretation": {
                     "risk_adjusted_score": 63.0,
                     "original_decision_score": 60.0,
                     "final_view": "probabilistic_bottom_zone",
                     "explanation": "不是趋势买点。",
                 },
-                "evidence": {"current_drawdown": 0.25, "extreme_proximity": 0.93},
+                "evidence": {
+                    "current_drawdown": 0.25,
+                    "drawdown_percentile": 0.96,
+                    "extreme_proximity": 0.93,
+                    "regime": "shock",
+                    "volatility_20": 0.035,
+                    "liquidity_score": 0.35,
+                    "flow_score": 0.32,
+                    "governance_gate": "pass",
+                },
             }
         )
 
         self.assertIn("抄底概率模式", html)
         self.assertIn("概率底部观察区", html)
         self.assertIn("72.00%", html)
+        self.assertIn("波动压力", html)
+        self.assertIn("系统健康允许", html)
+        self.assertIn("20日波动", html)
         self.assertIn("不覆盖 Decision Score", html)
         self.assertIn("不是趋势买点", html)
 

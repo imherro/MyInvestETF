@@ -2277,12 +2277,31 @@ def render_contrarian_signal(signal: dict[str, object] | None) -> str:
         "normal": "普通模式观察",
         "not_active": "未触发",
     }.get(final_view, final_view)
+    condition_details = {
+        "drawdown_extreme": (
+            f"当前回撤 {fmt_ratio_percent(evidence.get('current_drawdown'))}，"
+            f"回撤分位 {fmt_ratio_percent(evidence.get('drawdown_percentile'))}，"
+            f"历史极值接近度 {fmt_ratio_percent(evidence.get('extreme_proximity'))}"
+        ),
+        "regime_stress": f"当前市场状态 {REGIME_LABELS.get(str(evidence.get('regime') or ''), evidence.get('regime') or '待入库')}",
+        "volatility_stress": f"20日波动 {fmt_ratio_percent(evidence.get('volatility_20'))}，触发线约 2.80%",
+        "liquidity_stress": (
+            f"市场流动性 {fmt_ratio_percent(evidence.get('liquidity_score'))}，"
+            f"资金流分 {fmt_ratio_percent(evidence.get('flow_score'))}"
+        ),
+        "governance_allowed": f"系统健康闸口 {evidence.get('governance_gate') or '待入库'}，reject 时禁止触发",
+    }
     condition_items = "".join(
-        f"<li>{esc(label)}：{esc('满足' if bool(conditions.get(key)) else '未满足')}</li>"
+        f"""<li>
+          <strong>{esc(label)}：{esc('满足' if bool(conditions.get(key)) else '未满足')}</strong>
+          <span>{esc(condition_details.get(key, ''))}</span>
+        </li>"""
         for key, label in [
             ("drawdown_extreme", "极端回撤"),
             ("regime_stress", "压力状态"),
+            ("volatility_stress", "波动压力"),
             ("liquidity_stress", "流动性压力"),
+            ("governance_allowed", "系统健康允许"),
         ]
     )
     return f"""<section class="section-block">

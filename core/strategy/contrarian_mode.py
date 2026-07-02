@@ -134,6 +134,8 @@ class ContrarianModeEngine:
                 "drawdown_extreme": conditions["drawdown_extreme"],
                 "regime_stress": conditions["regime_stress"],
                 "liquidity_stress": conditions["liquidity_stress"],
+                "volatility_stress": conditions["volatility_stress"],
+                "governance_allowed": conditions["governance_allowed"],
             },
             adjusted_interpretation={
                 "risk_adjusted_score": None,
