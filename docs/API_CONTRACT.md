@@ -212,6 +212,57 @@ http://127.0.0.1:8017
 
 该接口只输出研究状态，不输出买卖动作、仓位、现金金额或份额数量。
 
+## `/api/replay/{etf}`
+
+用途：输出单只 ETF 的历史 DecisionSignal 回放报告。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.replay_report.v1`
+- `replay_report.etf`
+- `replay_report.time_series.score_series`
+- `replay_report.time_series.regime_series`
+- `replay_report.time_series.factor_series`
+- `replay_report.stability.score_std`
+- `replay_report.stability.regime_flip_rate`
+- `replay_report.stability.regime_duration_distribution`
+- `replay_report.stability.regime_transition_matrix`
+- `replay_report.stability.factor_stability_ic`
+- `replay_report.drawdown_sensitivity.score_vs_drawdown_correlation`
+- `replay_report.consistency_score`
+- `replay_report.validation.no_future_data`
+- `replay_report.validation.valuation_policy`
+
+该接口按 `as_of_date` 截断本地历史行情重建评分路径；Web API 默认均匀采样 24 个回放点并保留最新交易日。不写库、不触发重估值、不输出交易内容。
+
+## `/api/replay/{etf}/stability`
+
+用途：输出单只 ETF 回放稳定性摘要。
+
+关键字段：
+
+- `stability.score_mean`
+- `stability.score_std`
+- `stability.score_range`
+- `stability.regime_flip_rate`
+- `stability.regime_duration_distribution`
+- `stability.dominant_factor_rate`
+- `stability.taxonomy_consistency_drift`
+- `drawdown_sensitivity`
+- `consistency_score`
+- `validation`
+
+## `/api/replay/{etf}/regime-path`
+
+用途：输出单只 ETF 的历史 regime path 和状态切换结构。
+
+关键字段：
+
+- `regime_series`
+- `regime_duration_distribution`
+- `regime_transition_matrix`
+- `validation.no_future_data`
+
 ## `/api/market/structure`
 
 用途：输出市场结构层。

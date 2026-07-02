@@ -143,6 +143,27 @@ Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 
 
 该层只用于解释和研究排序，不改变 `ETFValuationSignal`、参考价格区间或入库报告。
 
+## Replay Report Output
+
+历史回放不写入 `ETFResearchReport` 强 schema，当前通过 `/api/replay/*` 输出。字段包括：
+
+- `time_series.score_series`: 历史 DecisionSignal score
+- `time_series.regime_series`: 历史 regime path
+- `time_series.factor_series`: 每日组件贡献
+- `stability.score_std`
+- `stability.regime_flip_rate`
+- `stability.regime_duration_distribution`
+- `stability.regime_transition_matrix`
+- `stability.factor_stability_ic`
+- `stability.taxonomy_consistency_drift`
+- `drawdown_sensitivity.score_vs_drawdown_correlation`
+- `consistency_score`
+- `validation.as_of_enforced`
+- `validation.no_future_data`
+- `validation.valuation_policy`
+
+Replay 必须按 `as_of_date` 截断本地价格序列。研究日之前没有历史估值信号时，使用中性估值输入，不能复用最新估值分数。
+
 `model_specific_inputs` 按类型分流：
 
 - `broad_index`: `equity_risk_premium`, `roe`, `market_position_score`

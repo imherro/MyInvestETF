@@ -13,6 +13,7 @@ MyInvestETF 为单只 ETF 提供研究页面和只读 API，展示：
 - 标准化因子暴露和 IC 摘要
 - 市场结构 breadth/liquidity/dispersion 和 Regime v2
 - Regime-aware 状态感知研究评分、动态权重和贡献拆解
+- 历史 DecisionSignal 回放、稳定性指标和无未来函数校验
 - 流动性、份额变化和跟踪质量
 - 市场状态、当前回撤、最大回撤和回撤分位
 - 底仓/工具仓资格
@@ -35,6 +36,8 @@ flowchart LR
   M --> G["SQLite: etf_research_runs"]
   G --> H["8017 Web ETF 页"]
   W --> H
+  W --> R["core/replay: Decision replay"]
+  R --> H
 ```
 
 ## 分层
@@ -50,6 +53,7 @@ flowchart LR
 - `core/market/`：根据 ETF 或底层指数行情判断 `risk_on`、`risk_off`、`shock`、`rotation`。
 - `core/market/structure.py`：市场结构层，当前用 ETF 池代理 breadth、liquidity 和 dispersion。
 - `core/decision/`：Regime-Aware Decision Engine，基于 Regime v2、taxonomy、factor exposure 和 valuation signal 输出研究评分、动态权重和状态机。
+- `core/replay/`：Decision Replay & Stability Engine，按 `as_of_date` 截断历史行情回放 DecisionSignal，并输出稳定性、regime path 和无未来函数校验。
 - `core/risk/`：根据 ETF 收盘价计算当前回撤、最大回撤、回撤分位、修复速度和持续天数。
 - `core/report/`：确定性报告组装和 `report_hash`。
 - `core/observability/`：旁路 trace 和审计日志。
@@ -70,6 +74,9 @@ flowchart LR
 - `/api/score/{etf}`：单只 ETF 状态感知研究评分。
 - `/api/score/decompose/{etf}`：单只 ETF 评分拆解。
 - `/api/decision/state/{etf}`：单只 ETF 状态机输出。
+- `/api/replay/{etf}`：单只 ETF 历史评分回放。
+- `/api/replay/{etf}/stability`：单只 ETF 回放稳定性。
+- `/api/replay/{etf}/regime-path`：单只 ETF 历史 regime path。
 - `/api/market/structure`：市场结构层。
 - `/api/market/breadth`：市场宽度摘要。
 - `/api/market/liquidity`：流动性结构摘要。

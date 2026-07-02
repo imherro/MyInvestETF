@@ -29,6 +29,7 @@ from core.market import (
     market_regime_v2_to_dict,
     market_structure_to_dict,
 )
+from core.replay import build_replay_report, replay_report_to_dict
 from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
@@ -1012,6 +1013,30 @@ def api_catalog(base_url: str) -> dict[str, object]:
                     "regime、score_band、trend_state、state_code、confidence。",
                     True,
                 ),
+                _api_endpoint(
+                    "GET",
+                    "/api/replay/{etf}",
+                    "返回单只 ETF 的历史 DecisionSignal 回放报告。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "ReplayReport，包括 score_series、regime_series、factor_series、stability、validation。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/api/replay/{etf}/stability",
+                    "返回单只 ETF 的回放稳定性指标。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "score_std、regime_flip_rate、duration distribution、factor stability、consistency_score。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/api/replay/{etf}/regime-path",
+                    "返回单只 ETF 的历史 regime path 和状态切换矩阵。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "regime_series、regime_duration_distribution、regime_transition_matrix。",
+                    True,
+                ),
                 _api_endpoint("GET", "/api/market/structure", "返回市场结构层，包含宽度、流动性和离散度。", [], "market_structure JSON。", True),
                 _api_endpoint("GET", "/api/market/breadth", "返回市场宽度摘要。", [], "breadth JSON。", True),
                 _api_endpoint("GET", "/api/market/liquidity", "返回流动性结构摘要。", [], "liquidity JSON。", True),
@@ -1048,6 +1073,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/etf/{code}/profile", "reason": "读取单只 ETF taxonomy profile。"},
             {"path": "/api/factors/{etf}", "reason": "读取单只 ETF 标准化因子暴露。"},
             {"path": "/api/score/{etf}", "reason": "读取单只 ETF 状态感知研究评分。"},
+            {"path": "/api/replay/{etf}", "reason": "读取单只 ETF 历史评分回放和稳定性验证。"},
             {"path": "/api/market/regime-v2", "reason": "读取结构驱动市场状态。"},
         ],
         "safety": {
@@ -2829,6 +2855,97 @@ def api_decision_state_for_etf(code: str) -> bytes:
     return json.dumps(state_payload, ensure_ascii=False).encode("utf-8")
 
 
+def replay_report_payload_for_etf(code: str) -> dict[str, object]:
+    if not ETF_CODE_RE.match(code):
+        return {
+            "schema_version": "myinvestetf.replay_report.v1",
+            "code": code,
+            "error": "invalid_etf_code",
+            "constraints": {"read_only": True, "research_only": True},
+        }
+    with closing(connect(DB_PATH)) as conn:
+        leader = get_latest_leader(conn, code) or get_known_leader(conn, code)
+        runs = rows_to_dicts(list_research_runs(conn, code))
+        queue = rows_to_dicts(list_queue_for_etf(conn, code))
+        leaders = list_latest_leaders(conn)
+        price_series_by_code = {
+            str(row["code"]): list_daily_prices(conn, str(row["code"]), start_date=BULL_MARKET_START_DATE)
+            for row in leaders
+        }
+        if code not in price_series_by_code:
+            price_series_by_code[code] = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
+        taxonomy_by_code = {
+            str(row["code"]): taxonomy_profile_from_sources(code=str(row["code"]), leader=row)
+            for row in leaders
+        }
+    latest = next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)
+    fallback_name = _first_queue_name(queue, code) if queue else code
+    taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest, fallback_name=fallback_name)
+    taxonomy_by_code[code] = taxonomy_profile
+    valuation_signal = valuation_signal_summary(latest) if latest else valuation_signal_summary(None)
+    if valuation_signal.get("valuation_model_type") is None:
+        valuation_signal.update(leader_model_info(leader))
+    valuation_as_of_date = str((latest or {}).get("research_date") or "") or None
+    report = replay_report_to_dict(
+        build_replay_report(
+            etf_code=code,
+            price_series_by_code=price_series_by_code,
+            taxonomy_by_code=taxonomy_by_code,
+            valuation_signal=valuation_signal,
+            valuation_as_of_date=valuation_as_of_date,
+            min_observations=45,
+            max_points=24,
+        )
+    )
+    return {
+        "schema_version": "myinvestetf.replay_report.v1",
+        "code": code,
+        "name": _row_value(leader, "name") or (latest or {}).get("name") or fallback_name,
+        "replay_report": report,
+        "constraints": report.get("constraints", {"read_only": True}),
+    }
+
+
+def api_replay_for_etf(code: str) -> bytes:
+    return json.dumps(replay_report_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
+
+
+def api_replay_stability_for_etf(code: str) -> bytes:
+    payload = replay_report_payload_for_etf(code)
+    report = payload.get("replay_report") if isinstance(payload.get("replay_report"), dict) else {}
+    stability_payload = {
+        "schema_version": "myinvestetf.replay_stability.v1",
+        "code": code,
+        "stability": report.get("stability") if isinstance(report, dict) else {},
+        "drawdown_sensitivity": report.get("drawdown_sensitivity") if isinstance(report, dict) else {},
+        "consistency_score": report.get("consistency_score") if isinstance(report, dict) else None,
+        "validation": report.get("validation") if isinstance(report, dict) else {},
+        "constraints": payload.get("constraints", {"read_only": True}),
+    }
+    if payload.get("error"):
+        stability_payload["error"] = payload.get("error")
+    return json.dumps(stability_payload, ensure_ascii=False).encode("utf-8")
+
+
+def api_replay_regime_path_for_etf(code: str) -> bytes:
+    payload = replay_report_payload_for_etf(code)
+    report = payload.get("replay_report") if isinstance(payload.get("replay_report"), dict) else {}
+    time_series = report.get("time_series") if isinstance(report.get("time_series"), dict) else {}
+    stability = report.get("stability") if isinstance(report.get("stability"), dict) else {}
+    regime_payload = {
+        "schema_version": "myinvestetf.replay_regime_path.v1",
+        "code": code,
+        "regime_series": time_series.get("regime_series") if isinstance(time_series, dict) else [],
+        "regime_duration_distribution": stability.get("regime_duration_distribution") if isinstance(stability, dict) else [],
+        "regime_transition_matrix": stability.get("regime_transition_matrix") if isinstance(stability, dict) else {},
+        "validation": report.get("validation") if isinstance(report, dict) else {},
+        "constraints": payload.get("constraints", {"read_only": True}),
+    }
+    if payload.get("error"):
+        regime_payload["error"] = payload.get("error")
+    return json.dumps(regime_payload, ensure_ascii=False).encode("utf-8")
+
+
 def api_queue() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         rows = rows_to_dicts(list_queue(conn))
@@ -2997,6 +3114,18 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/decision/state/"):
             code = path.removeprefix("/api/decision/state/").upper()
             self.send_bytes(api_decision_state_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/replay/") and path.endswith("/stability"):
+            code = path.removeprefix("/api/replay/").removesuffix("/stability").strip("/").upper()
+            self.send_bytes(api_replay_stability_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/replay/") and path.endswith("/regime-path"):
+            code = path.removeprefix("/api/replay/").removesuffix("/regime-path").strip("/").upper()
+            self.send_bytes(api_replay_regime_path_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/replay/"):
+            code = path.removeprefix("/api/replay/").upper()
+            self.send_bytes(api_replay_for_etf(code), "application/json; charset=utf-8")
             return
         if path.startswith("/api/factors/ic/"):
             factor_name = path.removeprefix("/api/factors/ic/").strip()

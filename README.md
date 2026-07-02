@@ -27,6 +27,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；当前版本只展示因子暴露和 IC，不改最终评分。
 - 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，但仍不改最终评分。
 - 状态感知研究评分由 `core/decision` 生成，将 Regime v2、taxonomy、因子暴露和类型化估值组合成 `DecisionSignal`；它只输出研究评分、权重拆解、状态和解释，不输出交易动作、现金金额或份额数量。
+- 历史回放由 `core/replay` 生成，按 `as_of_date` 截断本地行情重建 DecisionSignal path，并输出稳定性、regime path、回撤敏感性和无未来函数校验。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
 - 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
@@ -70,6 +71,7 @@ myinvestetf/web.py
   /api/latest        对外研究成果
   /api/score         单只 ETF 状态感知研究评分
   /api/decision      单只 ETF 状态机输出
+  /api/replay        单只 ETF 历史评分回放
   /api/queue         本地队列
 ```
 
@@ -156,6 +158,26 @@ Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、1
 基础权重随市场状态变化：`risk_on` 更重动量和流动性，`risk_off` 更重估值和风险，`shock` 更重风险和流动性，`rotation` 保持均衡。taxonomy 会二次调整权重，例如主线主题更重动量和流动性，核心宽基更重估值和风险，收益防御策略更重估值质量和风险稳定性。
 
 该层只用于“解释 + 评分 + 状态驱动权重”，不输出买卖动作、仓位比例、现金金额、份额数量，也不执行 rebalance。
+
+## 决策回放与稳定性
+
+`core/replay` 提供 Decision Replay & Stability Engine。它按 ETF 历史交易日截断本地行情，重新计算当日可见的 MarketStructure、Regime v2、factor exposure 和 DecisionSignal，用来验证评分系统在时间维度上的稳定性。Web API 默认使用均匀采样的 24 个回放点覆盖历史路径，并保留最新交易日。
+
+输出包括：
+
+- `time_series.score_series`: 历史评分序列。
+- `time_series.regime_series`: 历史 regime path。
+- `time_series.factor_series`: 每日四组件贡献。
+- `stability.score_std`: 评分波动。
+- `stability.regime_flip_rate`: regime 切换频率。
+- `stability.regime_duration_distribution`: regime 持续期分布。
+- `stability.regime_transition_matrix`: regime 状态切换矩阵。
+- `stability.factor_stability_ic`: 四组件贡献的 lag-1 稳定性近似。
+- `drawdown_sensitivity.score_vs_drawdown_correlation`: 评分与当前回撤的相关性。
+- `validation.no_future_data`: 无未来函数校验结果。
+- `consistency_score`: 综合稳定性评分。
+
+没有历史估值信号的日期不会复用最新估值，而使用中性估值输入，并在 `validation.valuation_policy` 中说明。该层只做回放验证，不输出交易动作或仓位。
 
 ## 完整深研任务
 
@@ -274,6 +296,9 @@ python -m pytest tests -q
 - `/api/score/{etf}`：单只 ETF 状态感知研究评分。
 - `/api/score/decompose/{etf}`：单只 ETF 评分组件、动态权重和贡献拆解。
 - `/api/decision/state/{etf}`：单只 ETF 状态机输出。
+- `/api/replay/{etf}`：单只 ETF 历史 DecisionSignal 回放报告。
+- `/api/replay/{etf}/stability`：单只 ETF 回放稳定性指标。
+- `/api/replay/{etf}/regime-path`：单只 ETF 历史 regime path 和状态切换矩阵。
 - `/api/market/structure`：市场结构层。
 - `/api/market/breadth`：市场宽度摘要。
 - `/api/market/liquidity`：流动性结构摘要。

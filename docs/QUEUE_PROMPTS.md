@@ -80,6 +80,7 @@ taxonomy_profile 由系统根据 ETF 元数据、跟踪指数、行业/主题暴
 factor exposure 与 IC 由 `core/factors` 根据本地行情计算；LLM 只提供数据来源和缺口说明。
 MarketStructure 与 Regime v2 由系统根据 ETF 池行情、taxonomy 和流动性代理生成；LLM 不手写 breadth、liquidity contribution 或 confirmation_level。
 DecisionSignal 由 `core/decision` 根据 Regime v2、taxonomy、factor exposure 和 valuation signal 生成；LLM 不手写最终 score、动态权重、factor_contributions 或 state_code。
+ReplayReport 由 `core/replay` 根据本地历史行情按 `as_of_date` 截断生成；LLM 不手写历史 score_series、regime path、stability metrics 或无未来函数校验。
 
 ## 类型化研究依据
 
