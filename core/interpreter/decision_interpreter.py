@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from typing import Any, Literal
 
+from .question_router import QuestionIntent, parse_question, question_intent_to_dict
+
 
 DecisionBand = Literal["low", "medium", "high"]
 DirectionalBias = Literal["bullish", "neutral", "bearish"]
@@ -56,14 +58,24 @@ def _directional_bias(score: float | None, regime: str) -> DirectionalBias:
     return "bearish"
 
 
-def _final_answer(score: float | None, regime: str) -> str:
+def _final_answer(score: float | None, regime: str, intent_type: str) -> str:
     if regime == "shock":
-        return "当前市场结构不稳定，不建议基于趋势决策；本输出只作研究解释，不构成交易指令。"
-    if score is not None and score >= 75.0:
-        return "适合配置，但建议分批进入；本输出只作研究解释，不构成交易指令。"
-    if score is not None and score >= 60.0:
-        return "中性偏积极，可观察或小仓位试探；本输出只作研究解释，不构成交易指令。"
-    return "不建议参与，风险或结构不支持；本输出只作研究解释，不构成交易指令。"
+        base = "当前市场结构不稳定，不适合基于趋势做参与评估。"
+    elif score is not None and score >= 75.0:
+        base = "结构支持参与评估，但仍应等待清晰触发条件并分批观察。"
+    elif score is not None and score >= 60.0:
+        base = "中性偏积极，适合继续观察或做小范围验证。"
+    else:
+        base = "结构不支持参与，风险或证据不充分。"
+    if intent_type == "risk_assessment":
+        base = f"风险判断：{base}"
+    elif intent_type == "market_state":
+        base = f"状态判断：{base}"
+    elif intent_type == "comparison":
+        base = f"比较意图已识别；当前输出仅解释单只ETF。{base}"
+    elif intent_type == "buy_assessment":
+        base = f"参与评估：{base}"
+    return f"{base}本输出只作研究解释，不构成交易指令。"
 
 
 def _status_label(status: object) -> str:
@@ -126,9 +138,12 @@ class DecisionInterpreter:
         taxonomy_profile: object | None = None,
         market_regime: object | None = None,
         governance_report: object | None = None,
+        question_intent: QuestionIntent | None = None,
     ) -> dict[str, Any]:
         """Return structured interpretation for one ETF and one question."""
 
+        intent = question_intent or parse_question(question, etf_code=etf_code)
+        intent_payload = question_intent_to_dict(intent)
         signal = _mapping(decision_signal)
         taxonomy = _mapping(taxonomy_profile)
         health = _mapping(governance_report)
@@ -157,6 +172,7 @@ class DecisionInterpreter:
         score_text = "待入库" if score is None else f"{score:.2f}"
         confidence_value = round(confidence or 0.0, 6)
         explanation = [
+            f"问题意图为 {intent.type}，关注点为 {intent.focus}。",
             f"市场状态为 {regime_state}，置信度 {confidence_value:.2f}。",
             f"ETF 类型为 {taxonomy_type}，子类 {taxonomy_subtype}。",
             f"综合评分 {score_text}，评分带 {band}，方向偏向 {bias}。",
@@ -175,6 +191,7 @@ class DecisionInterpreter:
                 "type": taxonomy_type,
                 "subtype": taxonomy_subtype,
             },
+            "intent": intent_payload,
             "decision": {
                 "score": score,
                 "band": band,
@@ -186,5 +203,5 @@ class DecisionInterpreter:
                 "data_quality": _status_label(data_quality.get("gate_status")),
                 "warnings": warnings,
             },
-            "final_answer": _final_answer(score, regime_state),
+            "final_answer": _final_answer(score, regime_state, intent.type),
         }

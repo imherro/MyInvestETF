@@ -77,6 +77,7 @@ def main() -> int:
     ok &= check((ROOT / "core" / "decision" / "engine.py").exists(), "ETF decision engine exists")
     ok &= check((ROOT / "core" / "governance" / "engine.py").exists(), "ETF governance engine exists")
     ok &= check((ROOT / "core" / "interpreter" / "decision_interpreter.py").exists(), "ETF decision interpreter exists")
+    ok &= check((ROOT / "core" / "interpreter" / "question_router.py").exists(), "ETF question router exists")
     ok &= check((ROOT / "core" / "replay" / "engine.py").exists(), "ETF replay engine exists")
     ok &= check((ROOT / "core" / "risk" / "drawdown.py").exists(), "ETF drawdown layer exists")
     ok &= check((ROOT / "core" / "taxonomy" / "etf_classifier.py").exists(), "ETF taxonomy classifier exists")

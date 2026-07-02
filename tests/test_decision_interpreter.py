@@ -48,15 +48,17 @@ class DecisionInterpreterTests(unittest.TestCase):
 
         self.assertEqual(
             set(result),
-            {"question", "etf", "regime", "taxonomy", "decision", "explanation", "risk", "final_answer"},
+            {"question", "etf", "regime", "taxonomy", "intent", "decision", "explanation", "risk", "final_answer"},
         )
         self.assertEqual(result["etf"], "510300.SH")
         self.assertEqual(result["regime"]["state"], "risk_on")
         self.assertEqual(result["taxonomy"]["type"], "broad_index_core")
         self.assertEqual(result["taxonomy"]["subtype"], "core_beta")
+        self.assertEqual(result["intent"]["type"], "buy_assessment")
+        self.assertEqual(result["intent"]["focus"], "timing")
         self.assertEqual(result["decision"]["band"], "high")
         self.assertEqual(result["decision"]["directional_bias"], "bullish")
-        self.assertIn("适合配置", result["final_answer"])
+        self.assertIn("参与评估", result["final_answer"])
         self.assertEqual(result["risk"]["regime_stability"], "warn")
         self.assertIn("regime_quality: warn", result["risk"]["warnings"])
 
@@ -72,6 +74,7 @@ class DecisionInterpreterTests(unittest.TestCase):
         self.assertEqual(result["decision"]["band"], "high")
         self.assertEqual(result["decision"]["directional_bias"], "bearish")
         self.assertIn("市场结构不稳定", result["final_answer"])
+        self.assertEqual(result["intent"]["type"], "market_state")
 
     def test_output_does_not_emit_trade_order_cash_or_shares(self) -> None:
         result = DecisionInterpreter().interpret(
@@ -85,8 +88,9 @@ class DecisionInterpreterTests(unittest.TestCase):
 
         self.assertEqual(result["decision"]["band"], "low")
         self.assertEqual(result["decision"]["directional_bias"], "bearish")
-        self.assertIn("不建议参与", result["final_answer"])
-        for forbidden in ["买入", "卖出", "现金金额", "份额数量"]:
+        self.assertIn("结构不支持参与", result["final_answer"])
+        self.assertEqual(result["intent"]["type"], "risk_assessment")
+        for forbidden in ["买入", "卖出", "现金金额", "份额数量", "适合配置", "小仓位"]:
             self.assertNotIn(forbidden, rendered)
 
 
