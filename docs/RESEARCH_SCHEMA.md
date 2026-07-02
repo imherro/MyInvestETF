@@ -127,6 +127,22 @@ BLOCKED -> FAILED
 
 Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 的输入权重，并输出 `confirmation_level` 与解释文本。当前版本不改变现有 ETF 评分。
 
+## Decision Signal Output
+
+状态感知研究评分不写入 `ETFResearchReport` 强 schema，当前通过 `/api/score/*`、`/api/decision/state/*` 和 ETF 详情页生成。字段包括：
+
+- `score`: 0-100 研究评分
+- `regime`: Regime v2 输入快照
+- `component_scores`: `momentum`、`flow`、`valuation`、`risk`
+- `factor_contributions`: 四个组件对最终分的贡献分
+- `adjusted_weights`: regime、taxonomy 和 factor effectiveness 调整后的动态权重
+- `factor_effectiveness`: 当前 regime 下各组件有效性
+- `state`: `regime`、`score_band`、`trend_state`、`taxonomy_type`、`state_code`
+- `confidence`
+- `constraints`: 必须声明只读、研究用途、不含交易动作、不含现金金额、不含份额数量
+
+该层只用于解释和研究排序，不改变 `ETFValuationSignal`、参考价格区间或入库报告。
+
 `model_specific_inputs` 按类型分流：
 
 - `broad_index`: `equity_risk_premium`, `roe`, `market_position_score`

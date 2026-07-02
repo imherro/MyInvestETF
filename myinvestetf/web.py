@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from core.decision import build_decision_signal, decision_signal_to_dict
 from core.factors import (
     build_factor_exposure,
     compute_factor_ic,
@@ -987,6 +988,30 @@ def api_catalog(base_url: str) -> dict[str, object]:
                     "factor definition 与 IC summaries。",
                     True,
                 ),
+                _api_endpoint(
+                    "GET",
+                    "/api/score/{etf}",
+                    "返回单只 ETF 的 Regime-Aware DecisionSignal 研究评分。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "score、regime、factor_contributions、adjusted_weights、state、confidence。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/api/score/decompose/{etf}",
+                    "返回单只 ETF 的评分组件、动态权重和贡献拆解。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "component_scores、factor_contributions、adjusted_weights、factor_effectiveness。",
+                    True,
+                ),
+                _api_endpoint(
+                    "GET",
+                    "/api/decision/state/{etf}",
+                    "返回单只 ETF 的状态机输出，不包含交易动作。",
+                    [{"name": "etf", "in": "path", "required": True, "description": "ETF 代码，例如 510300.SH。"}],
+                    "regime、score_band、trend_state、state_code、confidence。",
+                    True,
+                ),
                 _api_endpoint("GET", "/api/market/structure", "返回市场结构层，包含宽度、流动性和离散度。", [], "market_structure JSON。", True),
                 _api_endpoint("GET", "/api/market/breadth", "返回市场宽度摘要。", [], "breadth JSON。", True),
                 _api_endpoint("GET", "/api/market/liquidity", "返回流动性结构摘要。", [], "liquidity JSON。", True),
@@ -1022,6 +1047,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/etfs/{code}", "reason": "读取单只 ETF 详情、taxonomy、历史和队列状态。"},
             {"path": "/api/etf/{code}/profile", "reason": "读取单只 ETF taxonomy profile。"},
             {"path": "/api/factors/{etf}", "reason": "读取单只 ETF 标准化因子暴露。"},
+            {"path": "/api/score/{etf}", "reason": "读取单只 ETF 状态感知研究评分。"},
             {"path": "/api/market/regime-v2", "reason": "读取结构驱动市场状态。"},
         ],
         "safety": {
@@ -1544,6 +1570,25 @@ def factor_exposure_from_prices(code: str, prices: list[object] | None, taxonomy
     )
 
 
+def decision_signal_from_inputs(
+    *,
+    code: str,
+    factor_exposure: dict[str, object] | None,
+    market_regime_v2: dict[str, object] | None,
+    taxonomy_profile: dict[str, object] | None,
+    valuation_signal: dict[str, object] | None,
+) -> dict[str, object]:
+    return decision_signal_to_dict(
+        build_decision_signal(
+            etf_code=code,
+            factor_exposure=factor_exposure,
+            market_regime=market_regime_v2,
+            taxonomy_profile=taxonomy_profile,
+            valuation_signal=valuation_signal,
+        )
+    )
+
+
 def render_factor_exposure(exposure: dict[str, object] | None) -> str:
     exposure = exposure or {}
     factors = exposure.get("factors")
@@ -1580,6 +1625,42 @@ def render_factor_exposure(exposure: dict[str, object] | None) -> str:
           </table>
         </div>
         <p class="signal-note">因子贡献占比：{esc(attribution_text or '待入库')}</p>
+      </section>"""
+
+
+def render_decision_signal(signal: dict[str, object] | None) -> str:
+    signal = signal or {}
+    state = signal.get("state") if isinstance(signal.get("state"), dict) else {}
+    component_scores = signal.get("component_scores") if isinstance(signal.get("component_scores"), dict) else {}
+    contributions = signal.get("factor_contributions") if isinstance(signal.get("factor_contributions"), dict) else {}
+    adjusted_weights = signal.get("adjusted_weights") if isinstance(signal.get("adjusted_weights"), dict) else {}
+    component_rows = "".join(
+        f"""<tr>
+      <td>{esc(name)}</td>
+      <td>{fmt_num(component_scores.get(name))}</td>
+      <td>{fmt_ratio_percent(adjusted_weights.get(name))}</td>
+      <td>{fmt_num(contributions.get(name))}</td>
+    </tr>"""
+        for name in ["momentum", "flow", "valuation", "risk"]
+    )
+    return f"""<section class="section-block">
+        <h2>状态感知研究评分</h2>
+        <p class="muted">Decision Engine 根据 Regime v2、taxonomy、因子暴露和类型化估值动态调整权重；只输出研究评分、状态和解释，不输出交易动作。</p>
+        <div class="signal-grid">
+          {signal_item("Decision Score", fmt_num(signal.get("score")))}
+          {signal_item("状态码", state.get("state_code") if isinstance(state, dict) else None)}
+          {signal_item("评分带", state.get("score_band") if isinstance(state, dict) else None)}
+          {signal_item("趋势状态", state.get("trend_state") if isinstance(state, dict) else None)}
+          {signal_item("Regime", REGIME_LABELS.get(str((state or {}).get("regime") or ""), (state or {}).get("regime")) if isinstance(state, dict) else None)}
+          {signal_item("置信度", fmt_ratio_percent(signal.get("confidence")))}
+        </div>
+        <div class="table-wrap compact-table">
+          <table>
+            <thead><tr><th>组件</th><th>组件分</th><th>动态权重</th><th>贡献分</th></tr></thead>
+            <tbody>{component_rows}</tbody>
+          </table>
+        </div>
+        <p class="signal-note">{esc(signal.get("explanation") or "等待决策评分输入。")}</p>
       </section>"""
 
 
@@ -2214,6 +2295,13 @@ def render_etf_page(code: str) -> bytes:
     market_context = market_context_from_prices(code, context_prices)
     market_regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(code, context_prices, market_structure_obj))
     factor_exposure = factor_exposure_from_prices(code, context_prices, taxonomy_profile)
+    adaptive_decision_signal = decision_signal_from_inputs(
+        code=code,
+        factor_exposure=factor_exposure,
+        market_regime_v2=market_regime_v2,
+        taxonomy_profile=taxonomy_profile,
+        valuation_signal=valuation_signal,
+    )
     current_price = _display_current_price(latest if latest else None, price_cache_for_display, market)
     rating_label = (
         f"{leader['deep_rating'] or ''} {leader['deep_label'] or ''}".strip()
@@ -2256,6 +2344,7 @@ def render_etf_page(code: str) -> bytes:
         <div class="summary-grid">
           {metric("深研分", leader["deep_score"] if leader is not None else None)}
           {metric("当前价格", current_price)}
+          {metric("Decision Score", adaptive_decision_signal.get("score"))}
           {metric("估值分位", fmt_percentile(valuation_signal.get("valuation_percentile")))}
           {metric("ETF分类", TAXONOMY_LABELS.get(etf_type, etf_type or "待分类"))}
           {metric("PE TTM", market.get("pe_ttm"))}
@@ -2272,6 +2361,7 @@ def render_etf_page(code: str) -> bytes:
       {signal_matrix_section}
       {render_taxonomy_profile(taxonomy_profile)}
       {render_factor_exposure(factor_exposure)}
+      {render_decision_signal(adaptive_decision_signal)}
       {render_market_regime_v2(market_regime_v2, market_structure)}
       {render_market_context(market_context)}
       {render_valuation_chart(chart_runs, chart_prices)}
@@ -2647,6 +2737,98 @@ def api_market_regime_v2() -> bytes:
     ).encode("utf-8")
 
 
+def decision_signal_payload_for_etf(code: str) -> dict[str, object]:
+    if not ETF_CODE_RE.match(code):
+        return {
+            "schema_version": "myinvestetf.decision_signal.v1",
+            "code": code,
+            "error": "invalid_etf_code",
+            "constraints": {"read_only": True, "research_only": True},
+        }
+    with closing(connect(DB_PATH)) as conn:
+        leader = get_latest_leader(conn, code) or get_known_leader(conn, code)
+        runs = rows_to_dicts(list_research_runs(conn, code))
+        queue = rows_to_dicts(list_queue_for_etf(conn, code))
+        prices = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
+        structure_obj, structure, _price_series_by_code, _taxonomy_by_code = market_structure_from_connection(conn)
+    latest = next((row for row in runs if row.get("task_type") == "research"), runs[0] if runs else None)
+    fallback_name = _first_queue_name(queue, code) if queue else code
+    taxonomy_profile = taxonomy_profile_from_sources(code=code, leader=leader, latest=latest, fallback_name=fallback_name)
+    valuation_signal = valuation_signal_summary(latest) if latest else valuation_signal_summary(None)
+    if valuation_signal.get("valuation_model_type") is None:
+        valuation_signal.update(leader_model_info(leader))
+    factor_exposure = factor_exposure_from_prices(code, prices, taxonomy_profile)
+    market_regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(code, prices, structure_obj))
+    decision_signal = decision_signal_from_inputs(
+        code=code,
+        factor_exposure=factor_exposure,
+        market_regime_v2=market_regime_v2,
+        taxonomy_profile=taxonomy_profile,
+        valuation_signal=valuation_signal,
+    )
+    return {
+        "schema_version": "myinvestetf.decision_signal.v1",
+        "code": code,
+        "name": _row_value(leader, "name") or (latest or {}).get("name") or fallback_name,
+        "taxonomy_profile": taxonomy_profile,
+        "market_structure": structure,
+        "regime_v2": market_regime_v2,
+        "factor_exposure": factor_exposure,
+        "valuation_signal": valuation_signal,
+        "decision_signal": decision_signal,
+        "constraints": {
+            "read_only": True,
+            "research_only": True,
+            "contains_trade_orders": False,
+            "contains_cash_amounts": False,
+            "contains_share_counts": False,
+            "executes_rebalance": False,
+        },
+    }
+
+
+def api_score_for_etf(code: str) -> bytes:
+    return json.dumps(decision_signal_payload_for_etf(code), ensure_ascii=False).encode("utf-8")
+
+
+def api_score_decompose_for_etf(code: str) -> bytes:
+    payload = decision_signal_payload_for_etf(code)
+    signal = payload.get("decision_signal") if isinstance(payload.get("decision_signal"), dict) else {}
+    decomposed = {
+        "schema_version": "myinvestetf.score_decomposition.v1",
+        "code": code,
+        "score": signal.get("score") if isinstance(signal, dict) else None,
+        "regime": (signal.get("state") or {}).get("regime") if isinstance(signal.get("state"), dict) else None,
+        "component_scores": signal.get("component_scores") if isinstance(signal, dict) else {},
+        "factor_contributions": signal.get("factor_contributions") if isinstance(signal, dict) else {},
+        "adjusted_weights": signal.get("adjusted_weights") if isinstance(signal, dict) else {},
+        "factor_effectiveness": signal.get("factor_effectiveness") if isinstance(signal, dict) else {},
+        "inputs": signal.get("inputs") if isinstance(signal, dict) else {},
+        "constraints": payload.get("constraints", {"read_only": True}),
+    }
+    if payload.get("error"):
+        decomposed["error"] = payload.get("error")
+    return json.dumps(decomposed, ensure_ascii=False).encode("utf-8")
+
+
+def api_decision_state_for_etf(code: str) -> bytes:
+    payload = decision_signal_payload_for_etf(code)
+    signal = payload.get("decision_signal") if isinstance(payload.get("decision_signal"), dict) else {}
+    state = signal.get("state") if isinstance(signal, dict) and isinstance(signal.get("state"), dict) else {}
+    state_payload = {
+        "schema_version": "myinvestetf.decision_state.v1",
+        "code": code,
+        "score": signal.get("score") if isinstance(signal, dict) else None,
+        "confidence": signal.get("confidence") if isinstance(signal, dict) else None,
+        "state": state,
+        "explanation": state.get("explanation") if isinstance(state, dict) else None,
+        "constraints": payload.get("constraints", {"read_only": True}),
+    }
+    if payload.get("error"):
+        state_payload["error"] = payload.get("error")
+    return json.dumps(state_payload, ensure_ascii=False).encode("utf-8")
+
+
 def api_queue() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         rows = rows_to_dicts(list_queue(conn))
@@ -2803,6 +2985,18 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/market/regime-v2":
             self.send_bytes(api_market_regime_v2(), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/score/decompose/"):
+            code = path.removeprefix("/api/score/decompose/").upper()
+            self.send_bytes(api_score_decompose_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/score/"):
+            code = path.removeprefix("/api/score/").upper()
+            self.send_bytes(api_score_for_etf(code), "application/json; charset=utf-8")
+            return
+        if path.startswith("/api/decision/state/"):
+            code = path.removeprefix("/api/decision/state/").upper()
+            self.send_bytes(api_decision_state_for_etf(code), "application/json; charset=utf-8")
             return
         if path.startswith("/api/factors/ic/"):
             factor_name = path.removeprefix("/api/factors/ic/").strip()

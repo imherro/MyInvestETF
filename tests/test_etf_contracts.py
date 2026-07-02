@@ -38,6 +38,7 @@ from myinvestetf.web import (
     render_etf_cards,
     render_market_context,
     render_reference_price_explanation,
+    render_decision_signal,
     render_signal_matrix,
     render_valuation_chart,
     render_queue_rows,
@@ -537,6 +538,9 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/factors/{etf}", paths)
         self.assertIn("/api/factors/ic/{factor}", paths)
         self.assertIn("/api/factors/exposure/{etf}", paths)
+        self.assertIn("/api/score/{etf}", paths)
+        self.assertIn("/api/score/decompose/{etf}", paths)
+        self.assertIn("/api/decision/state/{etf}", paths)
         self.assertIn("/api/market/structure", paths)
         self.assertIn("/api/market/breadth", paths)
         self.assertIn("/api/market/liquidity", paths)
@@ -554,6 +558,9 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/etf/{code}/profile", parsed["paths"])
         self.assertIn("/api/factors/{etf}", parsed["paths"])
         self.assertIn("/api/factors/ic/{factor}", parsed["paths"])
+        self.assertIn("/api/score/{etf}", parsed["paths"])
+        self.assertIn("/api/score/decompose/{etf}", parsed["paths"])
+        self.assertIn("/api/decision/state/{etf}", parsed["paths"])
         self.assertIn("/api/market/regime-v2", parsed["paths"])
         self.assertIn("303", parsed["paths"]["/research"]["get"]["responses"])
 
@@ -757,6 +764,25 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("扩张", html)
         self.assertIn("82.00%", html)
         self.assertIn("source:theme lifecycle candidate", html)
+
+    def test_decision_signal_section_renders_decomposition(self) -> None:
+        html = render_decision_signal(
+            {
+                "score": 66.5,
+                "confidence": 0.75,
+                "state": {"regime": "risk_on", "score_band": "watch", "trend_state": "uptrend", "state_code": "risk_on:watch:uptrend"},
+                "component_scores": {"momentum": 80.0, "flow": 60.0, "valuation": 50.0, "risk": 70.0},
+                "adjusted_weights": {"momentum": 0.40, "flow": 0.25, "valuation": 0.15, "risk": 0.20},
+                "factor_contributions": {"momentum": 32.0, "flow": 15.0, "valuation": 7.5, "risk": 14.0},
+                "explanation": "Score 66.50 is driven by momentum under risk_on.",
+            }
+        )
+
+        self.assertIn("状态感知研究评分", html)
+        self.assertIn("Decision Score", html)
+        self.assertIn("risk_on:watch:uptrend", html)
+        self.assertIn("动态权重", html)
+        self.assertIn("不输出交易动作", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})

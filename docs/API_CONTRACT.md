@@ -154,6 +154,64 @@ http://127.0.0.1:8017
 
 该接口只读，只基于本地 `etf_daily_prices` 计算，不触发写入或重估值。
 
+## `/api/score/{etf}`
+
+用途：输出单只 ETF 的 Regime-Aware DecisionSignal 研究评分。
+
+关键字段：
+
+- `schema_version`: `myinvestetf.decision_signal.v1`
+- `taxonomy_profile`
+- `market_structure`
+- `regime_v2`
+- `factor_exposure`
+- `valuation_signal`
+- `decision_signal.score`
+- `decision_signal.component_scores`: `momentum`、`flow`、`valuation`、`risk`
+- `decision_signal.factor_contributions`: 四个组件对最终分的贡献分
+- `decision_signal.adjusted_weights`: 当前 regime 和 taxonomy 调整后的动态权重
+- `decision_signal.factor_effectiveness`: 当前 regime 下各组件有效性
+- `decision_signal.state`: `regime`、`score_band`、`trend_state`、`state_code`
+- `decision_signal.confidence`
+- `constraints.contains_trade_orders`: `false`
+- `constraints.contains_cash_amounts`: `false`
+- `constraints.contains_share_counts`: `false`
+
+该接口只读，不改变 `ETFValuationSignal`、研究报告、队列或数据库。
+
+## `/api/score/decompose/{etf}`
+
+用途：输出单只 ETF 的评分组件、动态权重和贡献拆解。
+
+关键字段：
+
+- `score`
+- `component_scores`
+- `factor_contributions`
+- `adjusted_weights`
+- `factor_effectiveness`
+- `inputs.factor_names_by_type`
+- `inputs.fallbacks`
+
+用于解释最终研究评分如何由动量、流动性、估值和风险组成。
+
+## `/api/decision/state/{etf}`
+
+用途：输出单只 ETF 的状态机结果。
+
+关键字段：
+
+- `score`
+- `confidence`
+- `state.regime`
+- `state.score_band`
+- `state.trend_state`
+- `state.taxonomy_type`
+- `state.state_code`
+- `state.explanation`
+
+该接口只输出研究状态，不输出买卖动作、仓位、现金金额或份额数量。
+
 ## `/api/market/structure`
 
 用途：输出市场结构层。

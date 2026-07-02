@@ -38,6 +38,7 @@ def main() -> int:
         "myinvestetf.db",
         "myinvestetf.leader_index",
         "myinvestetf.web",
+        "core.decision",
         "core.market",
         "core.risk",
         "core.taxonomy",
@@ -70,10 +71,12 @@ def main() -> int:
     ok &= check((ROOT / "core" / "valuation" / "classification.py").exists(), "ETF valuation classification layer exists")
     ok &= check((ROOT / "core" / "market" / "regime.py").exists(), "ETF market regime layer exists")
     ok &= check((ROOT / "core" / "market" / "structure.py").exists(), "ETF market structure layer exists")
+    ok &= check((ROOT / "core" / "decision" / "engine.py").exists(), "ETF decision engine exists")
     ok &= check((ROOT / "core" / "risk" / "drawdown.py").exists(), "ETF drawdown layer exists")
     ok &= check((ROOT / "core" / "taxonomy" / "etf_classifier.py").exists(), "ETF taxonomy classifier exists")
     ok &= check((ROOT / "core" / "factors" / "standardization.py").exists(), "ETF factor standardization layer exists")
     ok &= check((ROOT / "core" / "factors" / "ic.py").exists(), "ETF factor IC layer exists")
+    ok &= check("/api/score/{etf}" in web_source and "/api/decision/state/{etf}" in web_source, "decision score APIs are cataloged")
     queue_prompt_doc = ROOT / "docs" / "QUEUE_PROMPTS.md"
     queue_script = (ROOT / "scripts" / "generate_single_etf_prompt.py").read_text(encoding="utf-8")
     ok &= check(queue_prompt_doc.exists(), "ETF queue prompt contract is documented")

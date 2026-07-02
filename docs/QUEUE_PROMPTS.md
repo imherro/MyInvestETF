@@ -79,6 +79,7 @@ taxonomy_profile 由系统根据 ETF 元数据、跟踪指数、行业/主题暴
 市场状态 `market_context.regime` 与回撤 `market_context.drawdown` 也由系统根据行情序列生成；LLM 不手写这些最终字段。
 factor exposure 与 IC 由 `core/factors` 根据本地行情计算；LLM 只提供数据来源和缺口说明。
 MarketStructure 与 Regime v2 由系统根据 ETF 池行情、taxonomy 和流动性代理生成；LLM 不手写 breadth、liquidity contribution 或 confirmation_level。
+DecisionSignal 由 `core/decision` 根据 Regime v2、taxonomy、factor exposure 和 valuation signal 生成；LLM 不手写最终 score、动态权重、factor_contributions 或 state_code。
 
 ## 类型化研究依据
 
