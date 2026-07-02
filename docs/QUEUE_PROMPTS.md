@@ -78,6 +78,7 @@ LLM 只能负责收集、清洗、归一化输入和解释脚本输出，不能�
 taxonomy_profile 由系统根据 ETF 元数据、跟踪指数、行业/主题暴露、波动和流动性线索生成；LLM 只能提供证据，不手写最终分类结论。
 市场状态 `market_context.regime` 与回撤 `market_context.drawdown` 也由系统根据行情序列生成；LLM 不手写这些最终字段。
 factor exposure 与 IC 由 `core/factors` 根据本地行情计算；LLM 只提供数据来源和缺口说明。
+MarketStructure 与 Regime v2 由系统根据 ETF 池行情、taxonomy 和流动性代理生成；LLM 不手写 breadth、liquidity contribution 或 confirmation_level。
 
 ## 类型化研究依据
 

@@ -11,6 +11,7 @@ MyInvestETF 为单只 ETF 提供研究页面和只读 API，展示：
 - ETF 类型化估值模型和五仓角色
 - ETF taxonomy profile
 - 标准化因子暴露和 IC 摘要
+- 市场结构 breadth/liquidity/dispersion 和 Regime v2
 - 流动性、份额变化和跟踪质量
 - 市场状态、当前回撤、最大回撤和回撤分位
 - 底仓/工具仓资格
@@ -28,6 +29,7 @@ flowchart LR
   T --> X["core/factors"]
   X --> F["core/report.build_etf_report"]
   F --> M["core/market + core/risk"]
+  M --> S["MarketStructure + Regime v2"]
   M --> G["SQLite: etf_research_runs"]
   G --> H["8017 Web ETF 页"]
 ```
@@ -43,6 +45,7 @@ flowchart LR
 - `core/factors/`：point-in-time 因子标准化、factor registry、IC 分析和因子暴露归因。
 - `core/valuation/`：ETF 类型化估值、流动性、跟踪质量和仓位角色确定性评分。
 - `core/market/`：根据 ETF 或底层指数行情判断 `risk_on`、`risk_off`、`shock`、`rotation`。
+- `core/market/structure.py`：市场结构层，当前用 ETF 池代理 breadth、liquidity 和 dispersion。
 - `core/risk/`：根据 ETF 收盘价计算当前回撤、最大回撤、回撤分位、修复速度和持续天数。
 - `core/report/`：确定性报告组装和 `report_hash`。
 - `core/observability/`：旁路 trace 和审计日志。
@@ -60,6 +63,10 @@ flowchart LR
 - `/api/factors/{etf}`：单只 ETF 标准化因子暴露。
 - `/api/factors/exposure/{etf}`：单只 ETF 标准化因子暴露别名。
 - `/api/factors/ic/{factor}`：单因子 IC 摘要。
+- `/api/market/structure`：市场结构层。
+- `/api/market/breadth`：市场宽度摘要。
+- `/api/market/liquidity`：流动性结构摘要。
+- `/api/market/regime-v2`：结构驱动市场状态。
 - `/api/queue`：研究队列接口。
 
 ## 页面约束

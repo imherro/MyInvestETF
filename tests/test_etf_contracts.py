@@ -537,6 +537,10 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/factors/{etf}", paths)
         self.assertIn("/api/factors/ic/{factor}", paths)
         self.assertIn("/api/factors/exposure/{etf}", paths)
+        self.assertIn("/api/market/structure", paths)
+        self.assertIn("/api/market/breadth", paths)
+        self.assertIn("/api/market/liquidity", paths)
+        self.assertIn("/api/market/regime-v2", paths)
         self.assertIn("/api/latest", [item["path"] for item in catalog["recommended_entrypoints"]])
         self.assertIn("不触发重计算", " ".join(catalog["safety"]["boundaries"]))
 
@@ -550,6 +554,7 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("/api/etf/{code}/profile", parsed["paths"])
         self.assertIn("/api/factors/{etf}", parsed["paths"])
         self.assertIn("/api/factors/ic/{factor}", parsed["paths"])
+        self.assertIn("/api/market/regime-v2", parsed["paths"])
         self.assertIn("303", parsed["paths"]["/research"]["get"]["responses"])
 
     def test_home_api_overview_mentions_entrypoints_and_boundaries(self) -> None:

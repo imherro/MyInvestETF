@@ -6,8 +6,10 @@ from statistics import pstdev
 from typing import Any, Literal
 
 from core.risk.drawdown import DrawdownState, PricePoint, build_drawdown_state, normalize_price_series
+from .structure import MarketStructure
 
 RegimeValue = Literal["risk_on", "risk_off", "shock", "rotation"]
+ConfirmationLevel = Literal["weak", "medium", "strong"]
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,17 @@ class MarketContext:
     etf_code: str
     regime: MarketRegime
     drawdown: DrawdownState
+
+
+@dataclass(frozen=True)
+class MarketRegimeV2:
+    regime: RegimeValue
+    confidence: float
+    structure: dict[str, float]
+    confirmation_level: ConfirmationLevel
+    explanation: str
+    evidence: dict[str, float | str | None]
+    as_of_date: str | None = None
 
 
 def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
@@ -130,5 +143,82 @@ def build_market_context(
     return MarketContext(etf_code=etf_code, regime=regime, drawdown=drawdown)
 
 
+def build_market_regime_v2(
+    etf_code: str,
+    etf_prices: Iterable[object] | None,
+    market_structure: MarketStructure,
+) -> MarketRegimeV2:
+    points = normalize_price_series(etf_prices)
+    drawdown = build_drawdown_state(points)
+    momentum_20 = _return_between(points, 20)
+    momentum_60 = _return_between(points, 60)
+    volatility_20 = pstdev(_daily_returns(points, 20)) if len(_daily_returns(points, 20)) >= 2 else 0.0
+    trend_score = _clamp(0.5 + momentum_60 * 2.0)
+    volatility_score = _clamp(1.0 - volatility_20 / 0.04)
+    composite = (
+        trend_score * 0.40
+        + market_structure.breadth_score * 0.30
+        + market_structure.liquidity_score * 0.20
+        + volatility_score * 0.10
+    )
+
+    if (drawdown.current_drawdown >= 0.10 and volatility_20 >= 0.03) or (
+        market_structure.breadth_score < 0.30 and trend_score < 0.40
+    ):
+        regime: RegimeValue = "shock"
+    elif composite >= 0.62 and market_structure.breadth_score >= 0.55:
+        regime = "risk_on"
+    elif composite <= 0.38 or market_structure.breadth_score < 0.35:
+        regime = "risk_off"
+    else:
+        regime = "rotation"
+
+    bullish_price = trend_score >= 0.56
+    strong_structure = market_structure.breadth_score >= 0.56 and market_structure.liquidity_score >= 0.50
+    weak_structure = market_structure.breadth_score < 0.45 or market_structure.liquidity_score < 0.40
+    if bullish_price and strong_structure:
+        confirmation: ConfirmationLevel = "strong"
+        explanation = "price trend and market breadth confirm each other"
+    elif bullish_price and weak_structure:
+        confirmation = "weak"
+        explanation = "price bullish but breadth or liquidity confirmation is weak"
+    elif not bullish_price and strong_structure:
+        confirmation = "medium"
+        explanation = "market structure is healthier than ETF price trend"
+    else:
+        confirmation = "medium" if regime == "rotation" else "weak"
+        explanation = "price and structure do not provide strong confirmation"
+
+    confidence = _clamp(0.35 + abs(composite - 0.50) + market_structure.observations / 300.0)
+    return MarketRegimeV2(
+        regime=regime,
+        confidence=round(confidence, 6),
+        structure={
+            "breadth_score": market_structure.breadth_score,
+            "liquidity_score": market_structure.liquidity_score,
+            "dispersion_score": market_structure.dispersion_score,
+            "price_trend_score": round(trend_score, 6),
+            "volatility_score": round(volatility_score, 6),
+        },
+        confirmation_level=confirmation,
+        explanation=explanation,
+        evidence={
+            "etf_code": etf_code,
+            "momentum_20": round(momentum_20, 6),
+            "momentum_60": round(momentum_60, 6),
+            "volatility_20": round(volatility_20, 6),
+            "current_drawdown": drawdown.current_drawdown,
+            "composite_score": round(composite, 6),
+            "breadth_contribution": round(market_structure.breadth_score * 0.30, 6),
+            "liquidity_contribution": round(market_structure.liquidity_score * 0.20, 6),
+        },
+        as_of_date=points[-1].trade_date if points else market_structure.as_of_date,
+    )
+
+
 def market_context_to_dict(context: MarketContext) -> dict[str, Any]:
     return asdict(context)
+
+
+def market_regime_v2_to_dict(regime: MarketRegimeV2) -> dict[str, Any]:
+    return asdict(regime)

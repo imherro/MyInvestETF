@@ -154,6 +154,51 @@ http://127.0.0.1:8017
 
 该接口只读，只基于本地 `etf_daily_prices` 计算，不触发写入或重估值。
 
+## `/api/market/structure`
+
+用途：输出市场结构层。
+
+关键字段：
+
+- `market_structure.index_breadth`
+- `market_structure.sector_breadth`
+- `market_structure.advance_decline_ratio`
+- `market_structure.liquidity_breadth`
+- `market_structure.dispersion`
+- `market_structure.breadth_score`
+- `market_structure.liquidity_score`
+- `market_structure.dispersion_score`
+- `market_structure.contributions`
+
+## `/api/market/breadth`
+
+用途：输出市场宽度摘要，包括 breadth contribution。
+
+## `/api/market/liquidity`
+
+用途：输出流动性结构摘要，包括 liquidity contribution。
+
+## `/api/market/regime-v2`
+
+用途：输出结构驱动的市场状态。
+
+关键字段：
+
+- `market_structure`
+- `items[].code`
+- `items[].taxonomy_profile`
+- `items[].regime_v2.regime`
+- `items[].regime_v2.confidence`
+- `items[].regime_v2.structure.breadth_score`
+- `items[].regime_v2.structure.liquidity_score`
+- `items[].regime_v2.structure.dispersion_score`
+- `items[].regime_v2.confirmation_level`
+- `items[].regime_v2.explanation`
+- `items[].regime_v2.evidence.breadth_contribution`
+- `items[].regime_v2.evidence.liquidity_contribution`
+
+该接口只读，不影响 `/api/factors`、taxonomy、report 或现有评分。
+
 ## 约束
 
 所有接口只读，不包含交易指令、现金金额或份额数量。

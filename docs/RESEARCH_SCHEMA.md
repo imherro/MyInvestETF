@@ -111,6 +111,22 @@ BLOCKED -> FAILED
 
 所有因子默认使用 point-in-time lag 1，禁止用 forward return 窗口内的数据计算因子本身。
 
+## Market Structure Output
+
+市场结构不写入 `ETFResearchReport` 强 schema，当前通过 `/api/market/*` 暴露。字段包括：
+
+- `index_breadth`
+- `sector_breadth`
+- `advance_decline_ratio`
+- `liquidity_breadth`
+- `dispersion`
+- `breadth_score`
+- `liquidity_score`
+- `dispersion_score`
+- `contributions`
+
+Regime v2 使用 40% price trend、30% breadth、20% liquidity、10% volatility 的输入权重，并输出 `confirmation_level` 与解释文本。当前版本不改变现有 ETF 评分。
+
 `model_specific_inputs` 按类型分流：
 
 - `broad_index`: `equity_risk_premium`, `roe`, `market_position_score`

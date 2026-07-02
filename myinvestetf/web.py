@@ -20,7 +20,14 @@ from core.factors import (
     factor_ic_summary_to_dict,
     get_factor_definition,
 )
-from core.market import build_market_context, market_context_to_dict
+from core.market import (
+    build_market_context,
+    build_market_regime_v2,
+    build_market_structure,
+    market_context_to_dict,
+    market_regime_v2_to_dict,
+    market_structure_to_dict,
+)
 from core.taxonomy import classify_etf, taxonomy_profile_to_dict
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
@@ -980,6 +987,10 @@ def api_catalog(base_url: str) -> dict[str, object]:
                     "factor definition 与 IC summaries。",
                     True,
                 ),
+                _api_endpoint("GET", "/api/market/structure", "返回市场结构层，包含宽度、流动性和离散度。", [], "market_structure JSON。", True),
+                _api_endpoint("GET", "/api/market/breadth", "返回市场宽度摘要。", [], "breadth JSON。", True),
+                _api_endpoint("GET", "/api/market/liquidity", "返回流动性结构摘要。", [], "liquidity JSON。", True),
+                _api_endpoint("GET", "/api/market/regime-v2", "返回结构驱动的 Regime v2，不改变现有评分。", [], "market_structure 与 per ETF regime_v2。", True),
             ],
         },
         {
@@ -1011,6 +1022,7 @@ def api_catalog(base_url: str) -> dict[str, object]:
             {"path": "/api/etfs/{code}", "reason": "读取单只 ETF 详情、taxonomy、历史和队列状态。"},
             {"path": "/api/etf/{code}/profile", "reason": "读取单只 ETF taxonomy profile。"},
             {"path": "/api/factors/{etf}", "reason": "读取单只 ETF 标准化因子暴露。"},
+            {"path": "/api/market/regime-v2", "reason": "读取结构驱动市场状态。"},
         ],
         "safety": {
             "api_catalog_read_only": True,
@@ -1425,6 +1437,20 @@ def market_context_from_prices(code: str, prices: list[object] | None) -> dict[s
     return market_context_to_dict(build_market_context(code, etf_prices=prices or []))
 
 
+def market_structure_from_connection(conn: object) -> tuple[object, dict[str, object], dict[str, list[object]], dict[str, object]]:
+    leaders = list_latest_leaders(conn)
+    price_series_by_code = {
+        str(row["code"]): list_daily_prices(conn, str(row["code"]), start_date=BULL_MARKET_START_DATE)
+        for row in leaders
+    }
+    taxonomy_by_code = {
+        str(row["code"]): taxonomy_profile_from_sources(code=str(row["code"]), leader=row)
+        for row in leaders
+    }
+    structure = build_market_structure(price_series_by_code, taxonomy_by_code)
+    return structure, market_structure_to_dict(structure), price_series_by_code, taxonomy_by_code
+
+
 def _market_context_label(context: dict[str, object]) -> str:
     drawdown = context.get("drawdown")
     if isinstance(drawdown, dict) and not drawdown.get("data_points"):
@@ -1458,6 +1484,27 @@ def render_market_context(context: dict[str, object] | None) -> str:
           {signal_item("修复速度", fmt_ratio_percent(drawdown.get("recovery_speed") if isinstance(drawdown, dict) else None, digits=3, signed=True), "日均，从本轮低点计算")}
           {signal_item("持续天数", drawdown.get("duration_days") if isinstance(drawdown, dict) else None, "交易日")}
         </div>
+      </section>"""
+
+
+def render_market_regime_v2(regime: dict[str, object] | None, structure: dict[str, object] | None) -> str:
+    regime = regime or {}
+    structure = structure or {}
+    nested = regime.get("structure") if isinstance(regime.get("structure"), dict) else {}
+    return f"""<section class="section-block">
+        <h2>结构化市场状态</h2>
+        <p class="muted">Regime v2 = 40%价格趋势 + 30%宽度 + 20%流动性 + 10%波动；只升级市场输入质量，不改变现有评分。</p>
+        <div class="signal-grid">
+          {signal_item("Regime v2", REGIME_LABELS.get(str(regime.get("regime") or ""), regime.get("regime")))}
+          {signal_item("确认强度", regime.get("confirmation_level"))}
+          {signal_item("宽度贡献", fmt_ratio_percent((regime.get("evidence") or {}).get("breadth_contribution") if isinstance(regime.get("evidence"), dict) else None))}
+          {signal_item("流动性贡献", fmt_ratio_percent((regime.get("evidence") or {}).get("liquidity_contribution") if isinstance(regime.get("evidence"), dict) else None))}
+          {signal_item("市场宽度", fmt_ratio_percent(nested.get("breadth_score") if isinstance(nested, dict) else None))}
+          {signal_item("流动性宽度", fmt_ratio_percent(nested.get("liquidity_score") if isinstance(nested, dict) else None))}
+          {signal_item("离散度分", fmt_ratio_percent(nested.get("dispersion_score") if isinstance(nested, dict) else None))}
+          {signal_item("样本数", structure.get("observations"))}
+        </div>
+        <p class="signal-note">{esc(regime.get("explanation") or "等待结构化市场状态。")}</p>
       </section>"""
 
 
@@ -2128,6 +2175,7 @@ def render_etf_page(code: str) -> bytes:
         price_start = _valuation_price_start(chart_runs)
         chart_prices = list_daily_prices(conn, code, start_date=price_start) if price_start else []
         context_prices = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
+        market_structure_obj, market_structure, _universe_prices, _taxonomy_by_code = market_structure_from_connection(conn)
         report = latest_report(conn)
     if leader is None and not runs and not etf_queue:
         return render_layout(
@@ -2164,6 +2212,7 @@ def render_etf_page(code: str) -> bytes:
     decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
     price_cache_for_display = chart_prices or context_prices
     market_context = market_context_from_prices(code, context_prices)
+    market_regime_v2 = market_regime_v2_to_dict(build_market_regime_v2(code, context_prices, market_structure_obj))
     factor_exposure = factor_exposure_from_prices(code, context_prices, taxonomy_profile)
     current_price = _display_current_price(latest if latest else None, price_cache_for_display, market)
     rating_label = (
@@ -2223,6 +2272,7 @@ def render_etf_page(code: str) -> bytes:
       {signal_matrix_section}
       {render_taxonomy_profile(taxonomy_profile)}
       {render_factor_exposure(factor_exposure)}
+      {render_market_regime_v2(market_regime_v2, market_structure)}
       {render_market_context(market_context)}
       {render_valuation_chart(chart_runs, chart_prices)}
       {render_reference_price_explanation(latest if latest else None, valuation_signal)}
@@ -2513,6 +2563,90 @@ def api_factor_ic(factor_name: str) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
+def api_market_structure() -> bytes:
+    with closing(connect(DB_PATH)) as conn:
+        _structure_obj, structure, _prices, _taxonomy = market_structure_from_connection(conn)
+    return json.dumps(
+        {
+            "schema_version": "myinvestetf.market_structure.v1",
+            "market_structure": structure,
+            "constraints": {
+                "read_only": True,
+                "research_only": True,
+                "contains_trade_orders": False,
+                "contains_cash_amounts": False,
+                "contains_share_counts": False,
+            },
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def api_market_breadth() -> bytes:
+    with closing(connect(DB_PATH)) as conn:
+        _structure_obj, structure, _prices, _taxonomy = market_structure_from_connection(conn)
+    payload = {
+        "schema_version": "myinvestetf.market_breadth.v1",
+        "as_of_date": structure.get("as_of_date"),
+        "index_breadth": structure.get("index_breadth"),
+        "sector_breadth": structure.get("sector_breadth"),
+        "advance_decline_ratio": structure.get("advance_decline_ratio"),
+        "breadth_score": structure.get("breadth_score"),
+        "breadth_contribution": structure.get("contributions", {}).get("breadth") if isinstance(structure.get("contributions"), dict) else None,
+        "observations": structure.get("observations"),
+        "data_gaps": structure.get("data_gaps"),
+        "constraints": {"read_only": True, "research_only": True},
+    }
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
+def api_market_liquidity() -> bytes:
+    with closing(connect(DB_PATH)) as conn:
+        _structure_obj, structure, _prices, _taxonomy = market_structure_from_connection(conn)
+    payload = {
+        "schema_version": "myinvestetf.market_liquidity.v1",
+        "as_of_date": structure.get("as_of_date"),
+        "liquidity_breadth": structure.get("liquidity_breadth"),
+        "liquidity_score": structure.get("liquidity_score"),
+        "liquidity_contribution": structure.get("contributions", {}).get("liquidity") if isinstance(structure.get("contributions"), dict) else None,
+        "observations": structure.get("observations"),
+        "data_gaps": structure.get("data_gaps"),
+        "constraints": {"read_only": True, "research_only": True},
+    }
+    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
+def api_market_regime_v2() -> bytes:
+    with closing(connect(DB_PATH)) as conn:
+        structure_obj, structure, price_series_by_code, taxonomy_by_code = market_structure_from_connection(conn)
+    items = []
+    for code, prices in price_series_by_code.items():
+        regime = market_regime_v2_to_dict(build_market_regime_v2(code, prices, structure_obj))
+        items.append(
+            {
+                "code": code,
+                "taxonomy_profile": taxonomy_by_code.get(code),
+                "regime_v2": regime,
+            }
+        )
+    return json.dumps(
+        {
+            "schema_version": "myinvestetf.market_regime_v2.v1",
+            "market_structure": structure,
+            "items": items,
+            "constraints": {
+                "read_only": True,
+                "research_only": True,
+                "does_not_change_scoring": True,
+                "contains_trade_orders": False,
+                "contains_cash_amounts": False,
+                "contains_share_counts": False,
+            },
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
 def api_queue() -> bytes:
     with closing(connect(DB_PATH)) as conn:
         rows = rows_to_dicts(list_queue(conn))
@@ -2657,6 +2791,18 @@ class MyInvestETFHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/queue":
             self.send_bytes(api_queue(), "application/json; charset=utf-8")
+            return
+        if path == "/api/market/structure":
+            self.send_bytes(api_market_structure(), "application/json; charset=utf-8")
+            return
+        if path == "/api/market/breadth":
+            self.send_bytes(api_market_breadth(), "application/json; charset=utf-8")
+            return
+        if path == "/api/market/liquidity":
+            self.send_bytes(api_market_liquidity(), "application/json; charset=utf-8")
+            return
+        if path == "/api/market/regime-v2":
+            self.send_bytes(api_market_regime_v2(), "application/json; charset=utf-8")
             return
         if path.startswith("/api/factors/ic/"):
             factor_name = path.removeprefix("/api/factors/ic/").strip()

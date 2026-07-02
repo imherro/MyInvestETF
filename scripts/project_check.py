@@ -69,6 +69,7 @@ def main() -> int:
     )
     ok &= check((ROOT / "core" / "valuation" / "classification.py").exists(), "ETF valuation classification layer exists")
     ok &= check((ROOT / "core" / "market" / "regime.py").exists(), "ETF market regime layer exists")
+    ok &= check((ROOT / "core" / "market" / "structure.py").exists(), "ETF market structure layer exists")
     ok &= check((ROOT / "core" / "risk" / "drawdown.py").exists(), "ETF drawdown layer exists")
     ok &= check((ROOT / "core" / "taxonomy" / "etf_classifier.py").exists(), "ETF taxonomy classifier exists")
     ok &= check((ROOT / "core" / "factors" / "standardization.py").exists(), "ETF factor standardization layer exists")

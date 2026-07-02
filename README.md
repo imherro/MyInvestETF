@@ -25,6 +25,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 市场状态和回撤由 `core/market`、`core/risk` 旁路生成，只作为研究上下文展示；当前版本不改变既有 ETF 类型化评分。
 - ETF taxonomy 由 `core/taxonomy` 旁路生成，只增强产品分类、队列路由和 API profile；当前版本不改变既有 signal。
 - 标准化因子由 `core/factors` 生成，所有因子带 `as_of_date`、`lookback_window`、`source` 和 `leakage_guard`；当前版本只展示因子暴露和 IC，不改最终评分。
+- 市场结构由 `core/market/structure.py` 生成，当前用 ETF 池代理 breadth、liquidity 和 dispersion；Regime v2 使用结构输入，但仍不改最终评分。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
 - 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
@@ -110,6 +111,22 @@ myinvestetf/web.py
 - `drawdown.duration_days`: 从本轮高点以来的交易日数。
 
 该层用于解释“当前是追涨、轮动、风险收缩还是冲击下跌”，并为后续状态机评分和回测提供上下文。它不直接给出买卖建议，也不在本版本改变 `ETFValuationSignal` 分数。
+
+## 市场结构与 Regime v2
+
+`MarketStructure` 输出：
+
+- `index_breadth`
+- `sector_breadth`
+- `advance_decline_ratio`
+- `liquidity_breadth`
+- `dispersion`
+- `breadth_score`
+- `liquidity_score`
+- `dispersion_score`
+- `contributions`
+
+Regime v2 的组合权重为：40% 价格趋势、30% 宽度、20% 流动性、10% 波动。它额外输出 `confirmation_level`，用于解释“价格趋势与市场结构是否互相确认”。当前版本使用 ETF 池作为 breadth 代理；未来可替换为指数成分股上涨/下跌家数、行业扩散和资金流结构。
 
 ## 因子标准化与 IC
 
@@ -236,5 +253,9 @@ python -m pytest tests -q
 - `/api/factors/{etf}`：单只 ETF 标准化因子暴露。
 - `/api/factors/exposure/{etf}`：单只 ETF 因子暴露显式别名。
 - `/api/factors/ic/{factor}`：单个因子的 5/20/60 日 IC 摘要。
+- `/api/market/structure`：市场结构层。
+- `/api/market/breadth`：市场宽度摘要。
+- `/api/market/liquidity`：流动性结构摘要。
+- `/api/market/regime-v2`：结构驱动的市场状态。
 
 接口目录按“文档入口、Web 页面、当前数据、历史数据、分析结果、系统状态”分组。`/api` 只返回说明，不触发重计算、写入、交易、同步或外部请求；所有 `/api/*` 数据接口只读取本地结果。`/research` 是 Web 主动研究入口，可能写入本地研究队列，因此在目录中会单独标记为非只读公开路由。
