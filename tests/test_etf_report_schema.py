@@ -95,6 +95,34 @@ class ETFReportSchemaTests(unittest.TestCase):
         self.assertEqual(report.etf_code, "510300.SH")
         self.assertEqual(report.task_type, "research")
 
+    def test_research_report_accepts_market_context(self) -> None:
+        payload = base_report()
+        payload["market_context"] = {
+            "etf_code": "510300.SH",
+            "regime": {
+                "regime": "rotation",
+                "confidence": 0.62,
+                "as_of_date": "2026-06-24",
+                "evidence": {"momentum_20": 0.0123, "reason": "test"},
+                "data_points": 88,
+            },
+            "drawdown": {
+                "current_drawdown": 0.04,
+                "max_drawdown_rolling": 0.12,
+                "drawdown_percentile": 68.0,
+                "recovery_speed": 0.003,
+                "duration_days": 6,
+                "drawdown_acceleration": -0.01,
+                "as_of_date": "2026-06-24",
+                "peak_date": "2026-06-18",
+                "trough_date": "2026-06-21",
+                "data_points": 88,
+            },
+        }
+        report = validate_etf_research_report(payload)
+        self.assertEqual(report.market_context.regime.regime, "rotation")
+        self.assertEqual(report.market_context.drawdown.duration_days, 6)
+
     def test_research_report_requires_complete_reference_range(self) -> None:
         payload = base_report()
         payload["valuation"]["reference_value_low"] = None

@@ -41,6 +41,7 @@ http://127.0.0.1:8017
 - `etfs[].research.latest`
 - `etfs[].research.reference_value_history`
 - `etfs[].research.run_count`
+- `etfs[].market_context`: 市场状态和回撤上下文
 - `etfs[].decision_matrix`
 
 `research.latest` 是单只 ETF 最新的完整深研结果，不再拆分旧的两阶段任务。
@@ -87,6 +88,7 @@ http://127.0.0.1:8017
 - `leader_summary.valuation_model_type`
 - `leader_summary.sleeve_key`
 - `research_runs`: 研究历史，任务类型统一为 `research`
+- `market_context`: `regime` 与 `drawdown`，由本地日行情缓存计算
 - `decision_matrix`: 产品信号与 ETF 估值适配矩阵
 - `queue`: 队列状态
 - `trackable_history`: 历史入口记录

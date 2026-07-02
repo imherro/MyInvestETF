@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from core.market import build_market_context, market_context_to_dict
 from core.observability import TraceRecorder
 from core.schema.etf_report import ETFResearchReport
 from core.task.state import compute_task_run_id
@@ -58,6 +59,31 @@ def _round_float(value: float | None) -> float | None:
     if value is None:
         return None
     return round(float(value), 6)
+
+
+def _market_context_payload(etf_code: str, input_data: Mapping[str, Any]) -> dict[str, Any] | None:
+    raw_context = input_data.get("market_context")
+    canonical_context = _canonical(raw_context)
+    if isinstance(canonical_context, Mapping):
+        return dict(canonical_context)
+
+    etf_prices = (
+        input_data.get("price_series")
+        or input_data.get("etf_price_series")
+        or input_data.get("daily_prices")
+    )
+    etf_price_rows = _as_sequence(etf_prices)
+    if not etf_price_rows:
+        return None
+
+    index_prices = input_data.get("index_price_series") or input_data.get("underlying_index_price_series")
+    index_price_rows = _as_sequence(index_prices)
+    context = build_market_context(
+        etf_code,
+        etf_prices=etf_price_rows,
+        index_prices=index_price_rows if index_price_rows else None,
+    )
+    return market_context_to_dict(context)
 
 
 def _canonical(value: object) -> object:
@@ -183,6 +209,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
     sleeve_key = normalize_sleeve_key(input_data.get("sleeve_key") or product_inputs.get("sleeve_key"), model_type)
     model_specific_inputs = _as_mapping(input_data.get("model_specific_inputs"))
     features = extract_etf_features(input_data)
+    market_context = _market_context_payload(etf_code, input_data)
 
     if trace_recorder is not None:
         trace_recorder.record(
@@ -201,6 +228,23 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
                 "valuation_percentile": _round_float(features.valuation_percentile),
                 "premium_discount": _round_float(features.premium_discount),
                 "tracking_error": _round_float(features.tracking_error),
+            },
+        )
+    if trace_recorder is not None and market_context is not None:
+        trace_recorder.record(
+            run_id=run_id,
+            stage="market_context",
+            input_payload={
+                "etf_price_points": len(_as_sequence(input_data.get("price_series") or input_data.get("etf_price_series"))),
+                "index_price_points": len(
+                    _as_sequence(input_data.get("index_price_series") or input_data.get("underlying_index_price_series"))
+                ),
+            },
+            output_payload=market_context,
+            diff_metrics={
+                "regime": market_context.get("regime", {}).get("regime"),
+                "current_drawdown": market_context.get("drawdown", {}).get("current_drawdown"),
+                "drawdown_percentile": market_context.get("drawdown", {}).get("drawdown_percentile"),
             },
         )
 
@@ -243,16 +287,20 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
         )
 
     conclusion = build_conclusion(signal, model_type=model_type)
+    feature_hash_inputs: dict[str, object] = {
+        "valuation_model_type": model_type,
+        "sleeve_key": sleeve_key,
+        "product": product_inputs,
+        "holdings": holdings_inputs,
+        "valuation": valuation_inputs,
+        "model_specific": model_specific_inputs,
+    }
+    if market_context is not None:
+        feature_hash_inputs["market_context"] = market_context
+
     report_hash = compute_report_hash(
         etf_code=etf_code,
-        feature_inputs={
-            "valuation_model_type": model_type,
-            "sleeve_key": sleeve_key,
-            "product": product_inputs,
-            "holdings": holdings_inputs,
-            "valuation": valuation_inputs,
-            "model_specific": model_specific_inputs,
-        },
+        feature_inputs=feature_hash_inputs,
         valuation_outputs=value_range,
         signal_outputs=signal,
     )
@@ -352,6 +400,7 @@ def build_etf_report(input_data: Mapping[str, Any], trace_recorder: TraceRecorde
             "confidence": conclusion.confidence,
             "summary": conclusion.summary,
         },
+        "market_context": market_context,
         "evidence": evidence_items,
         "assumptions": [
             "same input gives same ETFResearchReport and report_hash",

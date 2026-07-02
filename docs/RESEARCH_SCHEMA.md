@@ -27,6 +27,7 @@
 - `base_position_view`
 - `risk`
 - `conclusion`
+- `market_context`: 可选，系统生成的市场状态与回撤上下文
 - `evidence`
 - `assumptions`
 - `data_gaps`
@@ -40,6 +41,7 @@
 - 顶层 `valuation_model_type` / `sleeve_key` 必须等于 `product_profile` 内部同名字段。
 - 如果显式提供 `run_id`，必须等于系统计算值。
 - `research` 必须写入完整参考价值区间，且 `low <= mid <= high`。
+- `market_context` 如存在，`etf_code` 必须等于顶层 `etf_code`；该字段只作为上下文，不改变当前评分。
 
 ## 任务状态机
 
@@ -83,7 +85,11 @@ BLOCKED -> FAILED
 - `liquidity_inputs`
 - `tracking_inputs`
 - `risk_signals`
+- `price_series`: 可选，ETF 日行情序列，支持 `trade_date`、`close`/`close_price`、`amount`、`volume`
+- `index_price_series`: 可选，底层指数日行情序列，用于市场状态判断
 - `evidence`, `assumptions`, `data_gaps`
+
+系统会从 `price_series` 计算 `market_context.drawdown`，并优先用 `index_price_series` 计算 `market_context.regime`。如果没有行情序列，报告仍可生成，页面和 API 会尝试用本地 `etf_daily_prices` 缓存补充。
 
 `model_specific_inputs` 按类型分流：
 

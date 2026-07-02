@@ -133,7 +133,7 @@ DEFENSIVE_CATEGORY_ORDER = {item["category_key"]: index for index, item in enume
 ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
 - 最终只输出一个 JSON object，不要输出 Markdown 包裹。
 - JSON 必须符合 core/schema/etf_report.py 中 ETFResearchReport。
-- 顶层字段固定为：schema_version, report_version, report_hash, run_id, etf_code, etf_name, source_report_id, task_type, research_date, status, valuation_model_type, sleeve_key, title, summary, product_profile, holdings_profile, valuation, base_position_view, risk, conclusion, evidence, assumptions, data_gaps。
+- 顶层字段固定为：schema_version, report_version, report_hash, run_id, etf_code, etf_name, source_report_id, task_type, research_date, status, valuation_model_type, sleeve_key, title, summary, product_profile, holdings_profile, valuation, base_position_view, risk, conclusion, market_context, evidence, assumptions, data_gaps。
 - 禁止输出 schema 以外的额外字段；禁止把未定义内容塞进自由 dict。
 - etf_code 使用唯一研究对象代码，etf_name 使用唯一研究对象名称，source_report_id 使用入口 report_id。
 - research_date 必须使用入口 basis_date。
@@ -145,6 +145,7 @@ ETF_REPORT_SCHEMA_INSTRUCTION = """ETFResearchReport 结构化输出要求：
 - valuation 必须包含 current_price, nav, premium_discount, underlying_pe, underlying_pb, valuation_percentile, reference_value_low, reference_value_mid, reference_value_high, unit, method, confidence, key_assumptions；可包含 engine_version, undervalued_score, liquidity_score, tracking_score, portfolio_role_score, risk_adjusted_score, mainline_validity_score, valuation_tolerance_score, crowding_risk_score, factor_premium_score, cash_like_safety_score。
 - risk 必须包含 liquidity_risk, tracking_risk, concentration_risk, sentiment_risk, invalidation_conditions。
 - conclusion 必须包含 grade, confidence, summary；grade 必须等于 base_position_view。
+- market_context 可为 null；如存在，必须由系统根据 price_series / index_price_series 或本地行情缓存生成，不得手写。
 - evidence 是对象数组，每项必须包含 source, date, url, purpose, detail。
 - assumptions 和 data_gaps 都是字符串数组。
 - base_position_view/grade 只能是：不适合底仓、观察、工具仓可用、底仓候选、估值或拥挤暂缓。
@@ -155,7 +156,7 @@ RESEARCH_ASSEMBLY_INPUT_INSTRUCTION = """ETF research assembly_input 结构化�
 - 你的角色是 ETF 完整深研输入构建器，不是最终报告计算器。
 - 不要手写最终 ETFResearchReport；最终报告必须由 scripts/build_research_report.py 或 core/report.build_etf_report(...) 生成。
 - 不要临场计算最终参考价值区间、signal、grade 或 report_hash；这些由 deterministic engine 生成。
-- assembly_input 必须是一个 JSON object，至少包含 etf_code, etf_name, source_report_id, task_type, research_date, valuation_model_type, sleeve_key, product_profile, holdings_inputs, valuation_inputs, model_specific_inputs, liquidity_inputs, tracking_inputs, risk_signals, evidence, assumptions, data_gaps。
+- assembly_input 必须是一个 JSON object，至少包含 etf_code, etf_name, source_report_id, task_type, research_date, valuation_model_type, sleeve_key, product_profile, holdings_inputs, valuation_inputs, model_specific_inputs, liquidity_inputs, tracking_inputs, risk_signals, evidence, assumptions, data_gaps；可包含 price_series 和 index_price_series。
 - task_type 固定为 research；research_date 使用入口 basis_date。
 - product_profile 放 ETF 产品结构、基金类型、跟踪指数、资产类别、费率、规模、流动性、组合角色。
 - holdings_inputs 放 holdings_disclosure_date, top_holdings, concentration_ratio, concentration_note, overlap_note, disclosure_lag_note；必须说明 fund_portfolio 是披露滞后口径，不是实时完整持仓。
@@ -163,6 +164,7 @@ RESEARCH_ASSEMBLY_INPUT_INSTRUCTION = """ETF research assembly_input 结构化�
 - model_specific_inputs 必须按 valuation_model_type 分类型填写，不能把不同 ETF 类型混用同一套依据。
 - liquidity_inputs 放 ETF 流动性输入：turnover_amount, fund_size, share_change_ratio；fund_share 是份额变化的可用代理。
 - tracking_inputs 放 tracking_error、discount_premium_history_note、index_replication_note 等跟踪质量输入。
+- price_series 放 ETF 日行情序列，index_price_series 放底层指数日行情序列；字段至少包括 trade_date 和 close/close_price，可包含 amount/volume。系统据此生成 market_context，LLM 不手写最终 market_context。
 - risk_signals 放 liquidity_risk, tracking_risk, concentration_risk, sentiment_risk, invalidation_conditions。
 - 所有来源必须进入 evidence：source, date, url, purpose, detail。
 - 如无法取得官方净申购赎回、长期估值分位、实时完整持仓、组合重叠等字段，必须写入 data_gaps，不得假装已验证。

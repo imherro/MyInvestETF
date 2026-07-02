@@ -36,6 +36,7 @@ from myinvestetf.web import (
     openapi_json,
     render_api_overview,
     render_etf_cards,
+    render_market_context,
     render_reference_price_explanation,
     render_signal_matrix,
     render_valuation_chart,
@@ -702,6 +703,28 @@ class ETFContractTests(unittest.TestCase):
         self.assertIn("底仓资格", html)
         self.assertIn("工具仓可用", html)
         self.assertNotIn("PE TTM", html)
+
+    def test_market_context_section_renders_drawdown_state(self) -> None:
+        html = render_market_context(
+            {
+                "etf_code": "510300.SH",
+                "regime": {"regime": "risk_off", "confidence": 0.7, "data_points": 60},
+                "drawdown": {
+                    "current_drawdown": 0.08,
+                    "max_drawdown_rolling": 0.18,
+                    "drawdown_percentile": 82.5,
+                    "recovery_speed": 0.002,
+                    "duration_days": 9,
+                    "as_of_date": "2026-06-24",
+                    "data_points": 60,
+                },
+            }
+        )
+        self.assertIn("市场状态与回撤", html)
+        self.assertIn("风险收缩", html)
+        self.assertIn("当前回撤", html)
+        self.assertIn("8.00%", html)
+        self.assertIn("82.50%", html)
 
     def test_decision_matrix_uses_etf_language(self) -> None:
         matrix = decision_matrix_summary({"bucket": "strong"}, {"bucket": "high"})

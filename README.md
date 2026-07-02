@@ -6,7 +6,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 
 ## 一句话逻辑
 
-每只 ETF 只生成一个 `research` 完整深研任务。这个任务一次性完成产品结构、底层指数、持仓披露、估值输入、类型化模型输入、风险和组合角色研究，再由确定性引擎生成参考价值区间、signal、`ETFResearchReport` 和页面展示结果。
+每只 ETF 只生成一个 `research` 完整深研任务。这个任务一次性完成产品结构、底层指数、持仓披露、估值输入、类型化模型输入、风险和组合角色研究，再由确定性引擎生成参考价值区间、signal、市场状态与回撤上下文、`ETFResearchReport` 和页面展示结果。
 
 ## 核心边界
 
@@ -21,6 +21,7 @@ MyInvestETF 是一个 A 股 ETF 研究与估值工作台，用来沉淀单只 ET
 - 队列任务使用 `core/task/state.py` 的状态机：`PENDING -> RUNNING -> DONE/FAILED/BLOCKED`。
 - `task_queue` 是唯一状态源；`research_queue` 只作为 prompt/projection/UI 表。
 - 参考价值区间和 signal 由 `core/valuation` 的确定性评分引擎生成，LLM 只负责构建输入和解释，不负责最终计算。
+- 市场状态和回撤由 `core/market`、`core/risk` 旁路生成，只作为研究上下文展示；当前版本不改变既有 ETF 类型化评分。
 - `fund_portfolio` 只能作为已披露季报持仓，不等同实时完整底仓；缺口必须写入 `data_gaps`。
 - Web 默认端口固定为 `8017`。
 - 页面首尾统一加载 `https://invest.okbbc.com/header.js` 和 `https://invest.okbbc.com/footer.js`。
@@ -46,6 +47,7 @@ SQLite:
         |
         +--> scripts/build_research_report.py
         |       从 research assembly_input 生成确定性 ETFResearchReport
+        |       旁路生成 MarketContext: regime + drawdown
         |
         +--> scripts/import_research_run.py
         |       导入已校验 ETFResearchReport
@@ -73,6 +75,20 @@ myinvestetf/web.py
 | `factor_defensive` | `defensive_quality` | 红利低波的股息利差、低波稳定性，或自由现金流 ETF 的 FCF yield、质量因子和风格机会成本。 |
 | `cash_like` | `cash_like` | 不做传统权益估值；只监控流动性、折溢价异常、久期风险、信用风险和收益稳定性。 |
 
+## 市场状态与回撤
+
+系统为每只有本地日行情的 ETF 生成 `market_context`：
+
+- `regime`: `risk_on`、`risk_off`、`shock`、`rotation`，由趋势、波动和流动性代理判断。
+- `confidence`: 市场状态置信度。
+- `drawdown.current_drawdown`: 最新收盘价相对本轮高点的回撤。
+- `drawdown.max_drawdown_rolling`: 当前行情序列中的最大回撤。
+- `drawdown.drawdown_percentile`: 当前回撤在历史回撤中的严重程度分位。
+- `drawdown.recovery_speed`: 从本轮低点到最新收盘价的日均修复速度。
+- `drawdown.duration_days`: 从本轮高点以来的交易日数。
+
+该层用于解释“当前是追涨、轮动、风险收缩还是冲击下跌”，并为后续状态机评分和回测提供上下文。它不直接给出买卖建议，也不在本版本改变 `ETFValuationSignal` 分数。
+
 ## 完整深研任务
 
 `research` 任务必须覆盖：
@@ -83,6 +99,7 @@ myinvestetf/web.py
 - 持仓披露：前十大持仓、披露日期、集中度、披露滞后和实时完整持仓缺口。
 - 跟踪质量：跟踪误差、折溢价、流动性和指数复制风险。
 - 估值输入：净值、价格、折溢价、底层指数 PE/PB、估值分位和类型化 `model_specific_inputs`。
+- 行情上下文：如能取得 ETF 和底层指数日行情，可在 `assembly_input.price_series` / `index_price_series` 中提供；最终 `market_context` 由系统生成。
 - 证伪条件：哪些规模、流动性、跟踪、指数估值或持仓变化会推翻当前角色判断。
 
 LLM 负责收集 Tushare 和必要网络补充资料，构建 `assembly_input`。系统负责通过 `core/valuation` 和 `core/report` 生成最终 `ETFResearchReport`、`report_hash`、参考价值区间和结论等级。
@@ -178,9 +195,9 @@ python -m pytest tests -q
 - `/etfs/{code}`：ETF 详情页，显示参考价格区间历史、产品结构、持仓披露、估值与流动性、风险与证伪、研究历史。
 - `/research?etf={code}`：主动研究入口；没有详情页时入队并跳转，有详情页时直接跳转。
 - `/api/index`：对外主结果接口。
-- `/api/latest`：对外研究成果接口。
+- `/api/latest`：对外研究成果接口，包含每只 ETF 的 `market_context`。
 - `/api/queue`：本地研究队列接口。
 - `/api/etfs`：当前 ETF 列表。
-- `/api/etfs/{code}`：单只 ETF 研究数据、队列状态和历史。
+- `/api/etfs/{code}`：单只 ETF 研究数据、`market_context`、队列状态和历史。
 
 接口目录按“文档入口、Web 页面、当前数据、历史数据、分析结果、系统状态”分组。`/api` 只返回说明，不触发重计算、写入、交易、同步或外部请求；所有 `/api/*` 数据接口只读取本地结果。`/research` 是 Web 主动研究入口，可能写入本地研究队列，因此在目录中会单独标记为非只读公开路由。

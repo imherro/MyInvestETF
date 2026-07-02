@@ -97,6 +97,24 @@ class ETFReportAssemblyTests(unittest.TestCase):
         )
         self.assertNotEqual(baseline.report_hash, changed.report_hash)
 
+    def test_build_report_adds_market_context_when_price_series_exists(self) -> None:
+        report = build_etf_report(
+            {
+                **ASSEMBLY_INPUT,
+                "price_series": [
+                    {"trade_date": "2026-01-01", "close_price": 4.0, "amount": 1000.0},
+                    {"trade_date": "2026-01-02", "close_price": 4.2, "amount": 1200.0},
+                    {"trade_date": "2026-01-03", "close_price": 3.9, "amount": 1300.0},
+                    {"trade_date": "2026-01-04", "close_price": 4.1, "amount": 1400.0},
+                ],
+            }
+        )
+
+        self.assertIsNotNone(report.market_context)
+        assert report.market_context is not None
+        self.assertEqual(report.market_context.etf_code, "510300.SH")
+        self.assertGreater(report.market_context.drawdown.max_drawdown_rolling, 0.0)
+
     def test_mainline_theme_uses_theme_strength_method(self) -> None:
         report = build_etf_report(
             {

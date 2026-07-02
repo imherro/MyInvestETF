@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from core.market import build_market_context, market_context_to_dict
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
 from .config import DB_PATH, DEFAULT_HOST, DEFAULT_PORT, FOOTER_SCRIPT_URL, HEADER_SCRIPT_URL, ROOT, STATIC_ASSET_VERSION
@@ -60,6 +61,13 @@ MODEL_TYPE_LABELS = {
     "mainline_theme": "主线估值",
     "factor_defensive": "收益防御估值",
     "cash_like": "现金替代监控",
+}
+
+REGIME_LABELS = {
+    "risk_on": "风险偏积极",
+    "risk_off": "风险收缩",
+    "shock": "冲击/急跌",
+    "rotation": "轮动/震荡",
 }
 
 SLEEVE_LABELS = {
@@ -165,6 +173,7 @@ def research_run_to_summary(row: object) -> dict[str, object]:
         "multi_bagger_potential": row["multi_bagger_potential"],
         "heavy_position_view": row["heavy_position_view"],
         "valuation_signal": valuation_signal,
+        "market_context": raw_map.get("market_context"),
         "evidence": load_json(row["evidence_json"], []),
         "assumptions": load_json(row["assumptions_json"], []),
         "risks": load_json(row["risks_json"], []),
@@ -1302,6 +1311,46 @@ def _display_current_price(latest: object | None, prices: list[object], market: 
     return None
 
 
+def market_context_from_prices(code: str, prices: list[object] | None) -> dict[str, object]:
+    return market_context_to_dict(build_market_context(code, etf_prices=prices or []))
+
+
+def _market_context_label(context: dict[str, object]) -> str:
+    drawdown = context.get("drawdown")
+    if isinstance(drawdown, dict) and not drawdown.get("data_points"):
+        return "待行情入库"
+    regime = context.get("regime")
+    if not isinstance(regime, dict):
+        return "待行情入库"
+    value = str(regime.get("regime") or "")
+    return REGIME_LABELS.get(value, value or "待行情入库")
+
+
+def render_market_context(context: dict[str, object] | None) -> str:
+    context = context or {}
+    regime = context.get("regime") if isinstance(context.get("regime"), dict) else {}
+    drawdown = context.get("drawdown") if isinstance(context.get("drawdown"), dict) else {}
+    data_points = drawdown.get("data_points") if isinstance(drawdown, dict) else None
+    as_of_date = drawdown.get("as_of_date") if isinstance(drawdown, dict) else None
+    note = (
+        "市场状态和回撤只作为研究上下文展示，本版本不改变ETF现有类型化估值评分。"
+        if data_points
+        else "本地尚未缓存足够行情，等待 update_etf_prices 后生成市场状态和回撤上下文。"
+    )
+    return f"""<section class="section-block">
+        <h2>市场状态与回撤</h2>
+        <p class="muted">{esc(note)}</p>
+        <div class="signal-grid">
+          {signal_item("市场状态", _market_context_label(context), f"置信度 {fmt_ratio_percent(regime.get('confidence') if isinstance(regime, dict) else None)}")}
+          {signal_item("当前回撤", fmt_ratio_percent(drawdown.get("current_drawdown") if isinstance(drawdown, dict) else None), as_of_date)}
+          {signal_item("滚动最大回撤", fmt_ratio_percent(drawdown.get("max_drawdown_rolling") if isinstance(drawdown, dict) else None))}
+          {signal_item("回撤分位", fmt_percentile(drawdown.get("drawdown_percentile") if isinstance(drawdown, dict) else None))}
+          {signal_item("修复速度", fmt_ratio_percent(drawdown.get("recovery_speed") if isinstance(drawdown, dict) else None, digits=3, signed=True), "日均，从本轮低点计算")}
+          {signal_item("持续天数", drawdown.get("duration_days") if isinstance(drawdown, dict) else None, "交易日")}
+        </div>
+      </section>"""
+
+
 def _parsed_date(value: object) -> object | None:
     try:
         return datetime.fromisoformat(str(value)[:10]).date()
@@ -1893,6 +1942,7 @@ def render_etf_page(code: str) -> bytes:
         chart_runs = valuation_runs(conn, code)
         price_start = _valuation_price_start(chart_runs)
         chart_prices = list_daily_prices(conn, code, start_date=price_start) if price_start else []
+        context_prices = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
         report = latest_report(conn)
     if leader is None and not runs and not etf_queue:
         return render_layout(
@@ -1925,7 +1975,9 @@ def render_etf_page(code: str) -> bytes:
     if valuation_signal.get("valuation_model_type") is None:
         valuation_signal.update(model_info)
     decision_matrix = decision_matrix_summary(upstream_signal, valuation_signal)
-    current_price = _display_current_price(latest if latest else None, chart_prices, market)
+    price_cache_for_display = chart_prices or context_prices
+    market_context = market_context_from_prices(code, context_prices)
+    current_price = _display_current_price(latest if latest else None, price_cache_for_display, market)
     rating_label = (
         f"{leader['deep_rating'] or ''} {leader['deep_label'] or ''}".strip()
         if leader is not None
@@ -1980,6 +2032,7 @@ def render_etf_page(code: str) -> bytes:
     <section class="content">
       {queue_status_section}
       {signal_matrix_section}
+      {render_market_context(market_context)}
       {render_valuation_chart(chart_runs, chart_prices)}
       {render_reference_price_explanation(latest if latest else None, valuation_signal)}
       {trackable_history_section}
@@ -2099,6 +2152,8 @@ def api_latest() -> bytes:
         for leader in leaders:
             runs = list_research_runs(conn, leader["code"])
             reference_runs_for_etf = valuation_runs(conn, leader["code"])
+            context_prices = list_daily_prices(conn, leader["code"], start_date=BULL_MARKET_START_DATE)
+            market_context = market_context_from_prices(leader["code"], context_prices)
             research_run_count += len(runs)
             complete_research_count += len(reference_runs_for_etf)
             latest = latest_research_run(runs)
@@ -2115,6 +2170,7 @@ def api_latest() -> bytes:
                         "reference_value_history": valuation_history_payload(reference_runs_for_etf),
                         "run_count": len(runs),
                     },
+                    "market_context": market_context,
                     "decision_matrix": decision_matrix,
                 }
             )
@@ -2144,6 +2200,7 @@ def api_etf(code: str) -> bytes:
         runs = rows_to_dicts(list_research_runs(conn, code))
         queue = rows_to_dicts(list_queue_for_etf(conn, code))
         trackable = rows_to_dicts(list_trackable_history(conn, code))
+        context_prices = list_daily_prices(conn, code, start_date=BULL_MARKET_START_DATE)
     for row in queue:
         row["source_label"] = queue_source_label(row.get("source_type"))
     leader_summary = leader_to_summary(leader) if leader else None
@@ -2152,12 +2209,14 @@ def api_etf(code: str) -> bytes:
         leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
         valuation_signal_summary(latest) if latest else valuation_signal_summary(None),
     )
+    market_context = market_context_from_prices(code, context_prices)
     return json.dumps(
         {
             "leader": dict(leader) if leader else None,
             "leader_summary": leader_summary,
             "upstream_signal": leader_summary["upstream_signal"] if leader_summary else upstream_signal_summary(None),
             "research_runs": runs,
+            "market_context": market_context,
             "decision_matrix": decision_matrix,
             "queue": queue,
             "trackable_history": trackable,

@@ -61,6 +61,7 @@ Research 必须回答：
 - ETF 属于核心宽基、主线进攻、收益防御、现金替代还是不适合作为组合工具。
 - 持仓披露日期、前十大持仓、集中度、披露滞后和数据缺口。
 - 净值、价格、折溢价、底层指数 PE/PB、估值分位和类型化 `model_specific_inputs`。
+- ETF 日行情和底层指数日行情；如可取得，写入 `assembly_input.price_series` 和 `assembly_input.index_price_series`，由系统生成市场状态与回撤。
 - 跟踪质量、流动性、证伪条件和组合角色。
 
 执行流程：
@@ -71,6 +72,7 @@ python scripts/import_research_run.py temp/reports/{code}_research_{basis_date}.
 ```
 
 LLM 只能负责收集、清洗、归一化输入和解释脚本输出，不能重新计算参考价值区间、signal、grade、`report_hash` 或 `run_id`。
+市场状态 `market_context.regime` 与回撤 `market_context.drawdown` 也由系统根据行情序列生成；LLM 不手写这些最终字段。
 
 ## 类型化研究依据
 

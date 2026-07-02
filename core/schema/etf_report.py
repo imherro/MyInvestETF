@@ -17,6 +17,7 @@ TaskType = Literal["research"]
 RunStatus = Literal["complete", "draft", "blocked"]
 Confidence = Literal["low", "medium", "high"]
 BasePositionView = Literal["不适合底仓", "观察", "工具仓可用", "底仓候选", "估值或拥挤暂缓"]
+MarketRegimeValue = Literal["risk_on", "risk_off", "shock", "rotation"]
 
 
 class StrictSchemaModel(BaseModel):
@@ -107,6 +108,33 @@ class ETFConclusion(StrictSchemaModel):
     summary: StrictStr
 
 
+class ETFMarketRegime(StrictSchemaModel):
+    regime: MarketRegimeValue
+    confidence: StrictFloat = Field(ge=0.0, le=1.0)
+    as_of_date: StrictStr | None = None
+    evidence: dict[str, StrictFloat | StrictStr | None] = Field(default_factory=dict)
+    data_points: int = Field(default=0, ge=0)
+
+
+class ETFDrawdownState(StrictSchemaModel):
+    current_drawdown: StrictFloat = Field(ge=0.0, le=1.0)
+    max_drawdown_rolling: StrictFloat = Field(ge=0.0, le=1.0)
+    drawdown_percentile: StrictFloat = Field(ge=0.0, le=100.0)
+    recovery_speed: StrictFloat
+    duration_days: int = Field(ge=0)
+    drawdown_acceleration: StrictFloat = 0.0
+    as_of_date: StrictStr | None = None
+    peak_date: StrictStr | None = None
+    trough_date: StrictStr | None = None
+    data_points: int = Field(default=0, ge=0)
+
+
+class ETFMarketContext(StrictSchemaModel):
+    etf_code: StrictStr
+    regime: ETFMarketRegime
+    drawdown: ETFDrawdownState
+
+
 class ETFResearchReport(StrictSchemaModel):
     schema_version: Literal["etf_research_report.v1"] = "etf_research_report.v1"
     report_version: StrictStr | None = None
@@ -128,6 +156,7 @@ class ETFResearchReport(StrictSchemaModel):
     base_position_view: BasePositionView
     risk: ETFRisk
     conclusion: ETFConclusion
+    market_context: ETFMarketContext | None = None
     evidence: list[EvidenceItem] = Field(min_length=1)
     assumptions: list[StrictStr] = Field(default_factory=list)
     data_gaps: list[StrictStr] = Field(default_factory=list)
@@ -146,6 +175,8 @@ class ETFResearchReport(StrictSchemaModel):
             raise ValueError("product_profile.valuation_model_type must equal report valuation_model_type")
         if self.product_profile.sleeve_key != self.sleeve_key:
             raise ValueError("product_profile.sleeve_key must equal report sleeve_key")
+        if self.market_context is not None and self.market_context.etf_code != self.etf_code:
+            raise ValueError("market_context.etf_code must equal report etf_code")
 
         values = (
             self.valuation.reference_value_low,
