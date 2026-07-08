@@ -54,6 +54,7 @@ from myinvestetf.web import (
     render_layout,
     render_taxonomy_profile,
     valuation_signal_summary,
+    taxonomy_profile_from_sources,
     xueqiu_etf_link,
 )
 from scripts.generate_single_etf_prompt import format_queue_prompt
@@ -520,6 +521,53 @@ class ETFContractTests(unittest.TestCase):
         self.assertEqual(summary["taxonomy_profile"]["etf_type"], "broad_index_core")
         self.assertEqual(summary["links"]["page"], "/etfs/510300.SH")
         self.assertEqual(summary["links"]["api"], "/api/etfs/510300.SH")
+
+    def test_taxonomy_profile_from_sources_ignores_incompatible_stored_profile(self) -> None:
+        leader = {
+            "code": "510210.SH",
+            "name": "富国上证综指ETF",
+            "theme": "上证综指宽基",
+            "market_json": "{}",
+            "scores_json": "{}",
+            "risk_flags_json": "[]",
+            "raw_json": json.dumps(
+                {
+                    "category_key": "上证综指",
+                    "valuation_model_type": "broad_index",
+                    "sleeve_key": "core_wide_etf",
+                },
+                ensure_ascii=False,
+            ),
+        }
+        latest = {
+            "raw_json": json.dumps(
+                {
+                    "etf_code": "510210.SH",
+                    "etf_name": "富国上证综指ETF",
+                    "valuation_model_type": "broad_index",
+                    "sleeve_key": "core_wide_etf",
+                    "product_profile": {
+                        "tracking_index": "上证综指（000001.SH）",
+                        "portfolio_role": "核心宽基权益 beta 工具；重点评估底仓适配、估值安全垫、流动性和跟踪质量。",
+                    },
+                    "taxonomy_profile": {
+                        "etf_type": "factor_strategy",
+                        "subtype": "dividend_low_vol",
+                        "lifecycle_stage": None,
+                        "classification_confidence": 0.9,
+                        "classification_reasons": ["keyword:factor or defensive strategy"],
+                        "legacy_valuation_model_type": "broad_index",
+                        "legacy_sleeve_key": "core_wide_etf",
+                    },
+                },
+                ensure_ascii=False,
+            )
+        }
+
+        profile = taxonomy_profile_from_sources(code="510210.SH", leader=leader, latest=latest)
+
+        self.assertEqual(profile["etf_type"], "broad_index_core")
+        self.assertEqual(profile["legacy_valuation_model_type"], "broad_index")
 
     def test_api_catalog_lists_public_endpoints_and_safety(self) -> None:
         catalog = api_catalog("http://127.0.0.1:8017")

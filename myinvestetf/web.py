@@ -42,7 +42,7 @@ from core.market import (
 )
 from core.replay import build_replay_report, replay_report_to_dict
 from core.strategy import ContrarianModeEngine, StrategyRouter, contrarian_signal_to_dict, strategy_decision_to_dict
-from core.taxonomy import classify_etf, taxonomy_profile_to_dict
+from core.taxonomy import classify_etf, taxonomy_profile_to_dict, taxonomy_type_matches_valuation_model
 from core.valuation import infer_valuation_model_type, sleeve_for_valuation_model
 
 from .config import DB_PATH, DEFAULT_HOST, DEFAULT_PORT, FOOTER_SCRIPT_URL, HEADER_SCRIPT_URL, ROOT, STATIC_ASSET_VERSION
@@ -199,12 +199,17 @@ def taxonomy_profile_from_sources(
     fallback_name: str | None = None,
 ) -> dict[str, object]:
     latest_raw = _raw_map(latest)
-    raw_profile = latest_raw.get("taxonomy_profile")
-    if isinstance(raw_profile, dict):
-        return raw_profile
-
     leader_raw = _raw_map(leader)
     model_info = leader_model_info(leader)
+    model_type = latest_raw.get("valuation_model_type") or model_info.get("valuation_model_type")
+    sleeve_key = latest_raw.get("sleeve_key") or model_info.get("sleeve_key")
+    raw_profile = latest_raw.get("taxonomy_profile")
+    if isinstance(raw_profile, dict) and taxonomy_type_matches_valuation_model(
+        raw_profile.get("etf_type"),
+        model_type,
+    ):
+        return raw_profile
+
     source: dict[str, object] = {
         **leader_raw,
         **latest_raw,
@@ -216,8 +221,8 @@ def taxonomy_profile_from_sources(
         "market": load_json(_row_value(leader, "market_json"), {}) if leader is not None else {},
         "scores": load_json(_row_value(leader, "scores_json"), {}) if leader is not None else {},
         "risk_flags": load_json(_row_value(leader, "risk_flags_json"), []) if leader is not None else [],
-        "valuation_model_type": latest_raw.get("valuation_model_type") or model_info.get("valuation_model_type"),
-        "sleeve_key": latest_raw.get("sleeve_key") or model_info.get("sleeve_key"),
+        "valuation_model_type": model_type,
+        "sleeve_key": sleeve_key,
     }
     product_profile = latest_raw.get("product_profile")
     if isinstance(product_profile, dict):

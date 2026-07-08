@@ -15,6 +15,25 @@ class ETFTaxonomyTests(unittest.TestCase):
         self.assertGreater(profile.classification_confidence, 0.85)
         self.assertTrue(profile.classification_reasons)
 
+    def test_broad_index_tracking_quality_text_is_not_quality_factor(self) -> None:
+        profile = classify_etf(
+            {
+                "code": "510210.SH",
+                "name": "富国上证综指ETF",
+                "category_key": "上证综指",
+                "valuation_model_type": "broad_index",
+                "sleeve_key": "core_wide_etf",
+                "product_profile": {
+                    "tracking_index": "上证综指（000001.SH）",
+                    "portfolio_role": "核心宽基权益 beta 工具；重点评估底仓适配、估值安全垫、流动性和跟踪质量。",
+                },
+            }
+        )
+
+        self.assertEqual(profile.etf_type, "broad_index_core")
+        self.assertEqual(profile.subtype, "core_beta")
+        self.assertEqual(profile.legacy_valuation_model_type, "broad_index")
+
     def test_classifies_growth_broad_index(self) -> None:
         profile = classify_etf({"code": "159915.SZ", "name": "易方达创业板ETF", "theme": "创业板宽基"})
 

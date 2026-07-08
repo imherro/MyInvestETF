@@ -9,7 +9,7 @@ from typing import Any
 from core.market import build_market_context, market_context_to_dict
 from core.observability import TraceRecorder
 from core.schema.etf_report import ETFResearchReport
-from core.taxonomy import classify_etf, taxonomy_profile_to_dict
+from core.taxonomy import classify_etf, taxonomy_profile_to_dict, taxonomy_type_matches_valuation_model
 from core.task.state import compute_task_run_id
 from core.valuation import (
     ETFFeatures,
@@ -96,7 +96,10 @@ def _taxonomy_profile_payload(
 ) -> dict[str, Any]:
     raw_profile = input_data.get("taxonomy_profile")
     canonical_profile = _canonical(raw_profile)
-    if isinstance(canonical_profile, Mapping):
+    if isinstance(canonical_profile, Mapping) and taxonomy_type_matches_valuation_model(
+        canonical_profile.get("etf_type"),
+        model_type,
+    ):
         return dict(canonical_profile)
     classifier_input = {
         **dict(input_data),

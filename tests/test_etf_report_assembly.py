@@ -87,6 +87,34 @@ class ETFReportAssemblyTests(unittest.TestCase):
         self.assertEqual(first.valuation.method, "broad-index-valuation+ERP")
         self.assertIsNotNone(first.valuation.reference_value_mid)
 
+    def test_build_report_recomputes_incompatible_taxonomy_profile(self) -> None:
+        report = build_etf_report(
+            {
+                **ASSEMBLY_INPUT,
+                "etf_code": "510210.SH",
+                "etf_name": "富国上证综指ETF",
+                "product_profile": {
+                    **ASSEMBLY_INPUT["product_profile"],
+                    "tracking_index": "上证综指（000001.SH）",
+                    "portfolio_role": "核心宽基权益 beta 工具；重点评估底仓适配、估值安全垫、流动性和跟踪质量。",
+                },
+                "taxonomy_profile": {
+                    "etf_type": "factor_strategy",
+                    "subtype": "dividend_low_vol",
+                    "lifecycle_stage": None,
+                    "classification_confidence": 0.9,
+                    "classification_reasons": ["keyword:factor or defensive strategy"],
+                    "legacy_valuation_model_type": "broad_index",
+                    "legacy_sleeve_key": "core_wide_etf",
+                },
+            }
+        )
+
+        self.assertIsNotNone(report.taxonomy_profile)
+        assert report.taxonomy_profile is not None
+        self.assertEqual(report.taxonomy_profile.etf_type, "broad_index_core")
+        self.assertEqual(report.taxonomy_profile.legacy_valuation_model_type, "broad_index")
+
     def test_hash_changes_when_inputs_change(self) -> None:
         baseline = build_etf_report(ASSEMBLY_INPUT)
         changed = build_etf_report(

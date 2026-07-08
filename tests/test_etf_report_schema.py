@@ -137,6 +137,21 @@ class ETFReportSchemaTests(unittest.TestCase):
         report = validate_etf_research_report(payload)
         self.assertEqual(report.taxonomy_profile.etf_type, "broad_index_core")
 
+    def test_research_report_rejects_taxonomy_model_mismatch(self) -> None:
+        payload = base_report()
+        payload["taxonomy_profile"] = {
+            "etf_type": "factor_strategy",
+            "subtype": "dividend_low_vol",
+            "lifecycle_stage": None,
+            "classification_confidence": 0.9,
+            "classification_reasons": ["keyword:factor or defensive strategy"],
+            "legacy_valuation_model_type": "broad_index",
+            "legacy_sleeve_key": "core_wide_etf",
+        }
+
+        with self.assertRaises(ValueError):
+            validate_etf_research_report(payload)
+
     def test_research_report_requires_complete_reference_range(self) -> None:
         payload = base_report()
         payload["valuation"]["reference_value_low"] = None

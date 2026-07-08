@@ -58,6 +58,16 @@ def _contains(text: str, *keywords: str) -> bool:
     return any(keyword.lower() in text for keyword in keywords)
 
 
+def _factor_strategy_subtype(text: str) -> str | None:
+    if _contains(text, "自由现金流", "现金流"):
+        return "free_cash_flow"
+    if _contains(text, "红利", "低波", "高股息", "股息"):
+        return "dividend_low_vol"
+    if _contains(text, "质量因子", "质量策略", "质量etf", "高质量"):
+        return "quality_factor"
+    return None
+
+
 def _confidence(base: float, reason_count: int) -> float:
     return round(max(0.0, min(1.0, base + min(0.10, reason_count * 0.02))), 6)
 
@@ -93,9 +103,9 @@ class ETFClassifier:
             source.get("source_path"),
         )
         reasons: list[str] = []
+        legacy_model = normalize_valuation_model_type(source.get("valuation_model_type"), source)
 
         def result(etf_type: ETFType, subtype: str, base_confidence: float) -> TaxonomyProfile:
-            legacy_model = normalize_valuation_model_type(source.get("valuation_model_type"), source)
             lifecycle = _theme_lifecycle(source, text) if etf_type == "theme_lifecycle" else None
             return TaxonomyProfile(
                 etf_type=etf_type,
@@ -107,10 +117,10 @@ class ETFClassifier:
                 legacy_sleeve_key=sleeve_for_valuation_model(legacy_model),
             )
 
-        if _contains(text, "自由现金流", "现金流", "红利", "低波", "质量", "高股息", "股息"):
+        factor_subtype = _factor_strategy_subtype(text)
+        if factor_subtype is not None:
             reasons.append("keyword:factor or defensive strategy")
-            subtype = "free_cash_flow" if _contains(text, "自由现金流", "现金流") else "dividend_low_vol"
-            return result("factor_strategy", subtype, 0.88)
+            return result("factor_strategy", factor_subtype, 0.88)
 
         if _contains(text, "短融", "日利", "货币", "现金", "添利", "快线", "保证金", "逆回购"):
             reasons.append("keyword:cash-like instrument")
@@ -123,6 +133,10 @@ class ETFClassifier:
         if _contains(text, "债", "国债", "政金债", "信用债", "可转债", "公司债"):
             reasons.append("keyword:bond exposure")
             return result("bond_etf", "bond_duration_based", 0.84)
+
+        if legacy_model == "mainline_theme" and _contains(text, "主线", "主题", "行业主题", "theme_ranking"):
+            reasons.append("legacy:model mainline theme route")
+            return result("theme_lifecycle", "mainline_theme", 0.76)
 
         if _contains(text, "创业板", "创业50", "科创50", "科创板50", "科创100", "科创板100", "中证1000", "成长宽基"):
             reasons.append("keyword:growth broad index")

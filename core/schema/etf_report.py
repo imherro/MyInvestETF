@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictStr, model_validator
 
 from core.task.state import compute_task_run_id
-from core.taxonomy import ETFType, ThemeLifecycleStage
+from core.taxonomy import ETFType, ThemeLifecycleStage, taxonomy_type_matches_valuation_model
 from core.valuation.classification import SleeveKey, ValuationModelType
 
 
@@ -192,6 +192,8 @@ class ETFResearchReport(StrictSchemaModel):
                 raise ValueError("taxonomy legacy valuation_model_type must equal report valuation_model_type")
             if self.taxonomy_profile.legacy_sleeve_key != self.sleeve_key:
                 raise ValueError("taxonomy legacy sleeve_key must equal report sleeve_key")
+            if not taxonomy_type_matches_valuation_model(self.taxonomy_profile.etf_type, self.valuation_model_type):
+                raise ValueError("taxonomy etf_type must match report valuation_model_type")
         if self.market_context is not None and self.market_context.etf_code != self.etf_code:
             raise ValueError("market_context.etf_code must equal report etf_code")
 
