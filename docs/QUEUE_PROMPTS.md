@@ -34,7 +34,7 @@ python scripts/generate_single_etf_prompt.py --next --claim
 - `task_id` / `run_id`: 对应 `task_queue` 的可追踪 ID。
 - `priority` / `stage`: 队列排序信息。
 - `depends_on_task_type`: 统一为空。
-- `source_type`: `broad_index_representative`、`defensive_representative`、`mainline_representative` 或 `manual_request`；历史任务可能仍为 `trackable_leader`。
+- `source_type`: `broad_index_representative`、`defensive_representative`、`mainline_representative`、`secondary_theme_representative` 或 `manual_request`；历史任务可能仍为 `trackable_leader`。
 - `source_detail`: 上游或手动入口说明。
 
 这些元数据用于追踪自动化执行，不替代报告 schema。
@@ -49,6 +49,7 @@ python scripts/generate_single_etf_prompt.py --next --claim
 - `report_id`、`basis_date`、主题/资产类别。
 - `valuation_model_type` 和 `sleeve_key`。
 - `taxonomy_profile`，包括 `etf_type`、`subtype`、`lifecycle_stage` 和分类理由。
+- 如果 `source_type=secondary_theme_representative`，提示词必须包含二级主题/行业反转研究口径，单独覆盖最大回撤、当前回撤、均线、成交额放大、份额变化和相对强弱。
 - Tushare 优先数据源：`fund_basic`、`fund_daily`、`fund_nav`、`fund_share`、`fund_portfolio`、`index_daily`。
 - `fund_portfolio` 只能作为已披露季报持仓，不得写成实时完整底仓。
 - 输出必须构建 `research assembly_input`，最终报告由确定性脚本生成。
@@ -59,7 +60,7 @@ Research 必须回答：
 
 - 基金类型、跟踪指数、费率、规模和流动性。
 - 底层指数编制逻辑、行业/主题暴露和集中度。
-- ETF 属于核心宽基、主线进攻、收益防御、现金替代还是不适合作为组合工具。
+- ETF 属于核心宽基、主线进攻、二级主题/行业反转、收益防御、现金替代还是不适合作为组合工具。
 - 持仓披露日期、前十大持仓、集中度、披露滞后和数据缺口。
 - 净值、价格、折溢价、底层指数 PE/PB、估值分位和类型化 `model_specific_inputs`。
 - ETF taxonomy；所有 ETF 评分必须绑定 taxonomy，不能只按旧四类估值模型解释。

@@ -13,14 +13,14 @@ http://127.0.0.1:8017
 关键字段：
 
 - `schema_version`: `myinvestetf.index.v1`
-- `key_results.primary_output.items`: 当前 ETF 池列表，包括主线接口 ETF 和本地核心宽基种子
+- `key_results.primary_output.items`: 当前 ETF 池列表，包括主线接口 ETF、本地核心宽基种子、收益防御种子和二级主题候选
 - `key_results.primary_output.items[].category_key`: ETF 投资暴露类别
 - `key_results.primary_output.items[].valuation_model_type`: `broad_index`、`mainline_theme`、`factor_defensive` 或 `cash_like`
 - `key_results.primary_output.items[].sleeve_key`: `core_wide_etf`、`mainline_etf`、`defensive_quality` 或 `cash_like`
 - `key_results.primary_output.items[].taxonomy_profile`: ETF 分类画像
 - `source.upstream_endpoint`: 默认 `https://theme.okbbc.com/api/latest`
-- `source.upstream_result_path`: 默认 `result.theme_ranking[].top_etf + result.etf_top`，兼容旧 `key_results.primary_output.items`
-- `source.source_policy`: `/api/index` 保留 ETF 池；本地深研队列先列核心宽基 ETF 代表，再按每条主线保留一个流动性代表。
+- `source.upstream_result_path`: 默认 `result.theme_ranking[].top_etf + result.etf_top + taxonomy_v2_ranking`，兼容旧 `key_results.primary_output.items`
+- `source.source_policy`: `/api/index` 保留 ETF 池；本地深研队列先列核心宽基和收益防御代表，再按每条主线保留一个流动性代表，最后补充未被主线覆盖的二级主题/行业反转代表。
 - `links.latest`: `/api/latest`
 - `constraints.read_only`: `true`
 - `constraints.contains_trade_orders`: `false`
@@ -75,15 +75,15 @@ http://127.0.0.1:8017
 
 队列策略：
 
-- 只展示当前主线报告的 `mainline_representative`、`broad_index_representative`、`defensive_representative` 任务，以及最新一次手动请求的 `manual_request` 任务；历史报告队列保留在数据库中但不作为当前队列输出。
+- 只展示当前主线报告的 `mainline_representative`、`broad_index_representative`、`defensive_representative`、`secondary_theme_representative` 任务，以及最新一次手动请求的 `manual_request` 任务；历史报告队列保留在数据库中但不作为当前队列输出。
 - `trackable_leader` 仅作为历史兼容来源保留，不再作为当前自动队列的新写入来源。
 - `broad_index`、`mainline_theme`、`factor_defensive` 会进入单一 `research` 队列。
 - `cash_like` 不进入深度研究队列，只作为现金替代资格监控对象。
 
 来源字段：
 
-- `source_type`: `broad_index_representative`、`defensive_representative`、`mainline_representative`、`manual_request`；历史数据可能还有 `trackable_leader`
-- `source_label`: `核心宽基`、`收益防御代表`、`主线代表`、`其他请求`
+- `source_type`: `broad_index_representative`、`defensive_representative`、`mainline_representative`、`secondary_theme_representative`、`manual_request`；历史数据可能还有 `trackable_leader`
+- `source_label`: `核心宽基`、`收益防御代表`、`主线代表`、`二级主题代表`、`其他请求`
 
 ## `/api/etfs/{code}`
 

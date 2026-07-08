@@ -99,6 +99,8 @@ core/interpreter
 | `factor_defensive` | `defensive_quality` | 红利低波的股息利差、低波稳定性，或自由现金流 ETF 的 FCF yield、质量因子和风格机会成本。 |
 | `cash_like` | `cash_like` | 不做传统权益估值；只监控流动性、折溢价异常、久期风险、信用风险和收益稳定性。 |
 
+二级主题/行业反转 ETF 暂沿用 `mainline_theme` 估值模型，但队列来源单独标记为 `secondary_theme_representative`。它不是一级主线确认，研究重点是行业底部反转、轮动修复和技术右侧确认，包括最大回撤、当前回撤、均线、放量、份额变化和相对强弱。
+
 ## ETF Taxonomy
 
 `taxonomy_profile` 将 ETF 细分为：
@@ -280,10 +282,11 @@ LLM 负责收集 Tushare 和必要网络补充资料，构建 `assembly_input`�
 
 ## 数据原则
 
-- 可跟踪 ETF 默认入口为 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf` 和 `result.etf_top`，并兼容旧 `key_results.primary_output.items` 结构。
+- 可跟踪 ETF 默认入口为 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf`、`result.etf_top` 和 `taxonomy_v2_ranking`，并兼容旧 `key_results.primary_output.items` 结构。
 - 每条主线至少保留一个 ETF 代表进入研究队列；同一主线内优先选择有成交额且成交额最大的 ETF，缺成交额时使用 `top_etf` 的第一位。
+- 二级主题/行业反转 ETF 从 `result.etf_top + taxonomy_v2_ranking` 匹配，只补充未被主线代表覆盖的行业主题；同一二级主题只保留成交额最大的 ETF，期货和海外宽基指数不纳入该队列。
 - 本地独立补齐上证综指、上证50、沪深300、中证500、中证1000、创业板、科创50 等核心宽基 ETF 研究对象；宽基研究来源不标记为可跟踪主线龙头。
-- ETF 深研队列先显示核心宽基代表，再显示收益防御代表，最后显示主线代表；来源分别为 `核心宽基`、`收益防御代表` 和 `主线代表`。
+- ETF 深研队列先显示核心宽基代表，再显示收益防御代表，再显示主线代表，最后显示二级主题代表；来源分别为 `核心宽基`、`收益防御代表`、`主线代表` 和 `二级主题代表`。
 - 上游信号分为两类：`market_signal` 来自 market 研究/市场状态层，用于建议总权益仓位；`theme_signal` 来自 theme 研究，只对主线、行业和主题 ETF 生效。宽基 ETF、自由现金流 ETF、红利低波 ETF 不等待行业主线确认。
 - `product_signal` 只描述 ETF 自身估值、流动性、跟踪质量、折溢价、回撤机会和风险调整，不再混称为上游信号。
 - Tushare 是 ETF 结构化主源，通过本地 `.env` 读取 token。

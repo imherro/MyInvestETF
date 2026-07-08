@@ -17,8 +17,15 @@ QUEUE_SOURCE_TRACKABLE = "trackable_leader"
 QUEUE_SOURCE_MAINLINE = "mainline_representative"
 QUEUE_SOURCE_BROAD_INDEX = "broad_index_representative"
 QUEUE_SOURCE_DEFENSIVE = "defensive_representative"
+QUEUE_SOURCE_SECONDARY = "secondary_theme_representative"
 QUEUE_SOURCE_REQUEST = "manual_request"
-AUTO_QUEUE_SOURCES = (QUEUE_SOURCE_TRACKABLE, QUEUE_SOURCE_MAINLINE, QUEUE_SOURCE_BROAD_INDEX, QUEUE_SOURCE_DEFENSIVE)
+AUTO_QUEUE_SOURCES = (
+    QUEUE_SOURCE_TRACKABLE,
+    QUEUE_SOURCE_MAINLINE,
+    QUEUE_SOURCE_BROAD_INDEX,
+    QUEUE_SOURCE_DEFENSIVE,
+    QUEUE_SOURCE_SECONDARY,
+)
 
 
 def utc_now() -> str:
@@ -271,6 +278,8 @@ def queue_source_label(source_type: object) -> str:
         return "核心宽基"
     if source_type == QUEUE_SOURCE_DEFENSIVE:
         return "收益防御代表"
+    if source_type == QUEUE_SOURCE_SECONDARY:
+        return "二级主题代表"
     if source_type == QUEUE_SOURCE_REQUEST:
         return "其他请求"
     return str(source_type or "未知来源")

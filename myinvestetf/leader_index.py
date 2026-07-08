@@ -17,6 +17,7 @@ from .db import (
     QUEUE_SOURCE_DEFENSIVE,
     QUEUE_SOURCE_MAINLINE,
     QUEUE_SOURCE_REQUEST,
+    QUEUE_SOURCE_SECONDARY,
     QUEUE_SOURCE_TRACKABLE,
     connect,
     init_db,
@@ -101,6 +102,36 @@ ETF_CATEGORY_KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("科创50", ("科创板50", "科创50")),
 )
 ETF_TOP_TEXT_RE = re.compile(r"(\d{6}\.(?:SH|SZ|BJ))\s+([^、，,]+)")
+SECONDARY_THEME_MIN_ETF_SCORE = 75.0
+SECONDARY_THEME_MIN_MARKET_HEAT = 10.0
+SECONDARY_THEME_MIN_COMBINED_SCORE = 10.0
+SECONDARY_THEME_ALIASES: dict[str, tuple[str, ...]] = {
+    "photovoltaic_wind_storage": ("光伏", "风电", "储能", "新能源"),
+    "agriculture_breeding_pig_cycle": ("农业", "养殖", "畜牧", "猪周期", "猪"),
+    "finance_brokerage_bank_insurance": ("大金融", "金融", "证券", "券商", "银行", "保险"),
+    "innovative_medicine": ("创新药", "医药", "医疗", "生物"),
+    "robotics": ("机器人",),
+    "industrial_equipment": ("工业母机", "高端装备", "工程机械", "机床"),
+    "infrastructure_materials": ("基建", "建材", "水泥", "稳增长"),
+    "resources_gold": ("黄金", "贵金属"),
+    "resources_coal_oil_gas": ("煤炭", "油气", "石油", "能源"),
+    "resources_copper_aluminum": ("铜", "铝", "工业金属", "有色"),
+    "real_estate_chain": ("地产", "家居", "建材"),
+    "media_game_ai_application": ("传媒", "游戏", "AI应用", "人工智能"),
+}
+SECONDARY_EXCLUDED_TEXT_KEYWORDS = (
+    "期货",
+    "dax",
+    "标普500",
+    "标普",
+    "s&p",
+    "msci美国",
+    "道琼斯",
+    "cac40",
+    "德国",
+    "法国",
+    "国际龙头",
+)
 BROAD_INDEX_SEED_ETFS: tuple[dict[str, Any], ...] = (
     {"code": "510210.SH", "name": "富国上证综指ETF", "theme": "上证综指宽基", "category_key": "上证综指"},
     {"code": "510050.SH", "name": "华夏上证50ETF", "theme": "上证50宽基", "category_key": "上证50"},
@@ -371,6 +402,241 @@ def _deduplicate_by_category(items: list[dict[str, Any]]) -> list[dict[str, Any]
         if current is None or (amount, score, -index) > (current[0], current[1], current[2]):
             selected[category_key] = (amount, score, -index, candidate)
     return [entry[3] for entry in sorted(selected.values(), key=lambda entry: (-entry[1], -entry[0], entry[3]["code"]))]
+
+
+def _flatten_text_values(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        texts: list[str] = []
+        for nested in value.values():
+            texts.extend(_flatten_text_values(nested))
+        return texts
+    if isinstance(value, (list, tuple, set)):
+        texts = []
+        for nested in value:
+            texts.extend(_flatten_text_values(nested))
+        return texts
+    return []
+
+
+def _taxonomy_v2_theme_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    result = payload.get("result") or {}
+    if not isinstance(result, dict):
+        return []
+    for key in ("taxonomy_v2_ranking", "themes"):
+        rows = result.get(key)
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    backfill = result.get("taxonomy_v2_backfill")
+    if isinstance(backfill, dict):
+        rows = backfill.get("themes") or backfill.get("ranking")
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def _theme_is_secondary_researchable(theme: dict[str, Any]) -> bool:
+    stage = str(theme.get("stage") or "")
+    if stage in {"可观察", "弱观察"}:
+        return True
+    return (
+        _safe_float(theme.get("market_heat_score")) >= SECONDARY_THEME_MIN_MARKET_HEAT
+        or _safe_float(theme.get("combined_score")) >= SECONDARY_THEME_MIN_COMBINED_SCORE
+    )
+
+
+def _secondary_theme_terms(theme: dict[str, Any]) -> set[str]:
+    texts: list[str] = [
+        str(theme.get("theme_name") or ""),
+        str(theme.get("parent_name") or ""),
+        str(theme.get("theme_id") or ""),
+        str(theme.get("parent_id") or ""),
+    ]
+    texts.extend(SECONDARY_THEME_ALIASES.get(str(theme.get("theme_id") or ""), ()))
+    texts.extend(_flatten_text_values((theme.get("matched_keywords") or {})))
+    for evidence in theme.get("evidence_sources") or []:
+        if isinstance(evidence, dict):
+            texts.extend(_flatten_text_values(evidence.get("matched_keywords")))
+    terms: set[str] = set()
+    for text in texts:
+        for part in re.split(r"[/、,，|；;()\s]+", str(text)):
+            compact = _compact_text(part).lower()
+            if len(compact) >= 2 and compact not in {"etf", "qdii", "主题", "行业", "指数"}:
+                terms.add(compact)
+    return terms
+
+
+def _secondary_theme_evidence_matches(item: dict[str, Any], theme: dict[str, Any]) -> bool:
+    item_name = _compact_text(item.get("name") or item.get("fund_name")).lower()
+    if not item_name:
+        return False
+    for evidence in theme.get("evidence_sources") or []:
+        if not isinstance(evidence, dict) or evidence.get("source") != "etf_top":
+            continue
+        label = _compact_text(evidence.get("label")).lower()
+        if label and (label == item_name or label in item_name or item_name in label):
+            return True
+    return False
+
+
+def _secondary_theme_match_score(item: dict[str, Any], theme: dict[str, Any]) -> tuple[float, list[str]] | None:
+    if not _theme_is_secondary_researchable(theme):
+        return None
+    category_key = etf_category_key(item)
+    item_text = _compact_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                item.get("name"),
+                item.get("fund_name"),
+                category_key,
+                item.get("theme"),
+                item.get("tracking_index"),
+                item.get("asset_class"),
+            )
+        )
+    ).lower()
+    if not item_text:
+        return None
+    terms = _secondary_theme_terms(theme)
+    hits = sorted(term for term in terms if term and term in item_text)
+    evidence_match = _secondary_theme_evidence_matches(item, theme)
+    if not hits and not evidence_match:
+        return None
+    score = (
+        (100.0 if evidence_match else 0.0)
+        + len(hits) * 12.0
+        + _safe_float(theme.get("market_heat_score")) * 0.35
+        + _safe_float(theme.get("combined_score")) * 0.20
+        + _safe_float(item.get("score") or item.get("deep_score")) * 0.10
+    )
+    return score, hits
+
+
+def _is_excluded_secondary_etf(item: dict[str, Any]) -> bool:
+    text = _compact_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                item.get("name"),
+                item.get("fund_name"),
+                item.get("theme"),
+                etf_category_key(item),
+            )
+        )
+    ).lower()
+    return any(keyword.lower() in text for keyword in SECONDARY_EXCLUDED_TEXT_KEYWORDS)
+
+
+def _best_secondary_theme_for_item(item: dict[str, Any], themes: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]] | None:
+    best: tuple[float, dict[str, Any], list[str]] | None = None
+    for theme in themes:
+        match = _secondary_theme_match_score(item, theme)
+        if match is None:
+            continue
+        score, hits = match
+        if best is None or score > best[0]:
+            best = (score, theme, hits)
+    if best is None:
+        return None
+    return best[1], best[2]
+
+
+def _mark_secondary_theme_item(item: dict[str, Any], theme: dict[str, Any], matched_terms: list[str]) -> dict[str, Any]:
+    candidate = dict(item)
+    theme_name = str(theme.get("theme_name") or theme.get("theme") or "二级主题")
+    parent_name = str(theme.get("parent_name") or "")
+    scores = candidate.get("scores")
+    scores_map = dict(scores) if isinstance(scores, dict) else {}
+    scores_map.update(
+        {
+            "secondary_theme_score": theme.get("combined_score"),
+            "secondary_market_heat": theme.get("market_heat_score"),
+            "secondary_policy_score": theme.get("policy_score_100") or theme.get("policy_score"),
+            "secondary_confidence_score": theme.get("confidence_score"),
+        }
+    )
+    themes = []
+    for value in candidate.get("themes") or []:
+        if value and value not in themes and value not in GENERIC_CATEGORY_VALUES:
+            themes.append(value)
+    for value in (theme_name, parent_name):
+        if value and value not in themes:
+            themes.append(value)
+    candidate.update(
+        {
+            "theme": theme_name,
+            "themes": themes or [theme_name],
+            "deep_label": "二级主题ETF候选",
+            "candidate_leader_tier": "二级主题ETF",
+            "candidate_leader_claim": (
+                f"来自 theme.okbbc.com taxonomy_v2 二级主题：{parent_name + ' / ' if parent_name else ''}{theme_name}；"
+                "用于行业底部反转和轮动观察"
+            ),
+            "candidate_evidence_score": theme.get("combined_score") or candidate.get("score") or candidate.get("deep_score"),
+            "candidate_evidence_count": len(theme.get("evidence_sources") or []),
+            "candidate_hard_evidence_count": len([term for term in matched_terms if term]),
+            "scores": scores_map,
+            "source_path": "result.etf_top + result.taxonomy_v2_ranking",
+            "secondary_theme_id": theme.get("theme_id"),
+            "secondary_theme_name": theme_name,
+            "secondary_parent_id": theme.get("parent_id"),
+            "secondary_parent_name": parent_name,
+            "secondary_stage": theme.get("stage"),
+            "secondary_confidence_label": theme.get("confidence_label"),
+            "secondary_matched_terms": matched_terms,
+            "data_gaps": candidate.get("data_gaps")
+            or ["二级主题 ETF 需要通过 Tushare 补齐净值、折溢价、份额、持仓和底层指数估值。"],
+        }
+    )
+    model_type = etf_model_type(candidate)
+    candidate["valuation_model_type"] = model_type
+    candidate["sleeve_key"] = sleeve_for_valuation_model(model_type)
+    candidate["category_key"] = etf_category_key(candidate)
+    _attach_taxonomy_profile(candidate)
+    return candidate
+
+
+def _secondary_theme_representatives(items: list[dict[str, Any]], payload: dict[str, Any]) -> list[dict[str, Any]]:
+    themes = _taxonomy_v2_theme_rows(payload)
+    if not themes:
+        return []
+    selected: dict[str, tuple[float, float, str, dict[str, Any]]] = {}
+    for item in items:
+        if item.get("source_path") != "result.etf_top":
+            continue
+        if item.get("top_etf_rank") is not None or item.get("theme_rank") is not None:
+            continue
+        if is_broad_index_item(item) or is_defensive_seed_item(item) or is_cash_like_etf(item):
+            continue
+        if _is_excluded_secondary_etf(item):
+            continue
+        if _safe_float(item.get("score") or item.get("deep_score")) < SECONDARY_THEME_MIN_ETF_SCORE:
+            continue
+        match = _best_secondary_theme_for_item(item, themes)
+        if match is None:
+            continue
+        theme, matched_terms = match
+        candidate = _mark_secondary_theme_item(item, theme, matched_terms)
+        theme_key = str(candidate.get("secondary_theme_id") or candidate["category_key"])
+        amount = _liquidity_amount(candidate)
+        score = _safe_float(candidate.get("score") or candidate.get("deep_score"))
+        current = selected.get(theme_key)
+        if current is None or (amount, score, candidate["code"]) > (current[0], current[1], current[2]):
+            selected[theme_key] = (amount, score, candidate["code"], candidate)
+    representatives = [entry[3] for entry in selected.values()]
+    representatives = _deduplicate_by_category(representatives)
+    return sorted(
+        representatives,
+        key=lambda item: (
+            -_safe_float(item.get("scores", {}).get("secondary_theme_score") if isinstance(item.get("scores"), dict) else 0.0),
+            -_liquidity_amount(item),
+            item["code"],
+        ),
+    )
 
 
 def _normalize_theme_latest_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -667,11 +933,17 @@ def is_defensive_seed_item(item: dict[str, Any]) -> bool:
     return str(item.get("code") or "") in DEFENSIVE_SEED_CODES
 
 
+def is_secondary_theme_item(item: dict[str, Any]) -> bool:
+    return bool(item.get("secondary_theme_id")) or str(item.get("source_path") or "") == "result.etf_top + result.taxonomy_v2_ranking"
+
+
 def queue_source_for_item(item: dict[str, Any]) -> str:
     if is_broad_index_item(item):
         return QUEUE_SOURCE_BROAD_INDEX
     if is_defensive_seed_item(item):
         return QUEUE_SOURCE_DEFENSIVE
+    if is_secondary_theme_item(item):
+        return QUEUE_SOURCE_SECONDARY
     if (
         item.get("theme_rank") is not None
         or item.get("top_etf_rank") is not None
@@ -688,6 +960,13 @@ def queue_source_detail_for_item(item: dict[str, Any]) -> str:
         return f"核心宽基代表：{category_key or item.get('theme') or item['code']}；来源：{source_path or 'local.broad_index_seed/result.etf_top'}"
     if is_defensive_seed_item(item):
         return f"收益防御代表：{category_key or item.get('theme') or item['code']}；来源：{source_path or 'local.defensive_seed'}"
+    if is_secondary_theme_item(item):
+        theme = item.get("secondary_theme_name") or item.get("theme") or category_key
+        parent = item.get("secondary_parent_name")
+        stage = item.get("secondary_stage")
+        prefix = f"{parent} / " if parent else ""
+        stage_text = f"，阶段：{stage}" if stage else ""
+        return f"二级主题代表：{prefix}{theme}{stage_text}；来源：{source_path or 'result.etf_top + result.taxonomy_v2_ranking'}"
     if item.get("top_etf_rank") is not None and source_path != "result.theme_ranking.top_etf":
         source_path = f"{source_path or 'result.etf_top'} + result.theme_ranking.top_etf"
     return f"主线代表：{item.get('theme') or category_key or item['code']}；来源：{source_path or 'result.theme_ranking.top_etf'}"
@@ -698,6 +977,10 @@ def research_queue_sort_key(item: dict[str, Any]) -> tuple[int, int, float, str]
         return (0, BROAD_INDEX_CATEGORY_ORDER.get(etf_category_key(item), 999), -_liquidity_amount(item), item["code"])
     if is_defensive_seed_item(item):
         return (1, DEFENSIVE_CATEGORY_ORDER.get(etf_category_key(item), 999), -_liquidity_amount(item), item["code"])
+    if is_secondary_theme_item(item):
+        scores = item.get("scores")
+        secondary_score = _safe_float(scores.get("secondary_theme_score") if isinstance(scores, dict) else None)
+        return (3, 999, -secondary_score, item["code"])
     return (2, 999, -_safe_float(item.get("score") or item.get("deep_score")), item["code"])
 
 
@@ -722,7 +1005,18 @@ def research_representatives(items: list[dict[str, Any]], payload: dict[str, Any
     defensive_representatives: list[dict[str, Any]] = []
     for item in _deduplicate_by_category(defensive_items):
         _append_unique(defensive_representatives, item)
-    representatives = broad_representatives + defensive_representatives + mainline_representatives
+    mainline_categories = {etf_category_key(item) for item in mainline_representatives}
+    mainline_themes = {str(item.get("theme") or "") for item in mainline_representatives}
+    secondary_representatives = [
+        item
+        for item in _secondary_theme_representatives(items, payload)
+        if etf_category_key(item) not in mainline_categories and str(item.get("secondary_theme_name") or item.get("theme") or "") not in mainline_themes
+    ]
+    for item in secondary_representatives:
+        original = by_code.get(item["code"])
+        if original is not None:
+            original.update(item)
+    representatives = broad_representatives + defensive_representatives + mainline_representatives + secondary_representatives
     return representatives or _deduplicate_by_category(items)
 
 
@@ -750,6 +1044,21 @@ def save_raw_payload(payload: dict[str, Any], report_id: str, raw_dir: Path = RA
     return path
 
 
+def _secondary_theme_prompt_block(item: dict[str, Any]) -> str:
+    if not is_secondary_theme_item(item):
+        return ""
+    scores = item.get("scores")
+    scores_map = scores if isinstance(scores, dict) else {}
+    return f"""
+二级主题/行业反转研究口径：
+- 二级主题：{item.get('secondary_parent_name') or '未标注'} / {item.get('secondary_theme_name') or item.get('theme') or '未标注'}。
+- 二级主题阶段：{item.get('secondary_stage') or '未标注'}；置信度：{item.get('secondary_confidence_label') or '未标注'}。
+- 二级主题分：{scores_map.get('secondary_theme_score') or '未入库'}；市场热度：{scores_map.get('secondary_market_heat') or '未入库'}；政策分：{scores_map.get('secondary_policy_score') or '未入库'}。
+- 研究目标不是证明它已经成为一级主线，而是判断是否出现行业底部反转、轮动修复或技术右侧确认。
+- 必须单独覆盖技术反转观察：最大回撤、当前回撤、回撤分位、20/60/120 日均线、成交额放大、份额变化、相对沪深300/中证500强弱。
+- 结论只允许表达为反转观察、左侧布局候选、右侧确认候选、过热暂缓或不适合研究，不得直接写成长期底仓。"""
+
+
 def build_research_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
     code = item["code"]
     name = item["name"]
@@ -770,6 +1079,7 @@ def build_research_prompt(item: dict[str, Any], report: dict[str, Any]) -> str:
 - taxonomy.etf_type：{model['etf_type']}
 - taxonomy.subtype：{model['subtype']}
 - taxonomy.lifecycle_stage：{model['lifecycle_stage'] or '不适用'}
+{_secondary_theme_prompt_block(item)}
 
 硬约束：
 - 只研究这一只 ETF，禁止同时研究其他 ETF。

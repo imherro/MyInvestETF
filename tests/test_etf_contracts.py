@@ -12,6 +12,7 @@ from myinvestetf.db import (
     QUEUE_SOURCE_DEFENSIVE,
     QUEUE_SOURCE_MAINLINE,
     QUEUE_SOURCE_REQUEST,
+    QUEUE_SOURCE_SECONDARY,
     connect,
     init_db,
     latest_report,
@@ -27,6 +28,7 @@ from myinvestetf.leader_index import (
     enqueue_requested_etf,
     ingest_payload,
     primary_items,
+    queue_source_for_item,
     research_representatives,
     report_meta,
 )
@@ -255,6 +257,49 @@ class ETFContractTests(unittest.TestCase):
             self.assertEqual(by_code[code]["valuation_model_type"], "factor_defensive")
             self.assertEqual(by_code[code]["sleeve_key"], "defensive_quality")
             self.assertEqual(by_code[code]["category_key"], category)
+
+    def test_secondary_theme_representative_uses_largest_amount_etf(self) -> None:
+        payload = {
+            "report_id": "mainline_r1",
+            "result": {
+                "basis_date": "2026-06-24",
+                "theme_ranking": [
+                    {"theme": "AI算力/通信", "mainline_score_v6": 90, "top_etf": "515050.SH 5GETF"},
+                ],
+                "taxonomy_v2_ranking": [
+                    {
+                        "theme_id": "agriculture_breeding_pig_cycle",
+                        "theme_name": "农业/养殖/猪周期",
+                        "parent_id": "agriculture",
+                        "parent_name": "农业周期",
+                        "combined_score": 14.5,
+                        "market_heat_score": 19.8,
+                        "policy_score_100": 0.0,
+                        "stage": "证据不足",
+                        "confidence_label": "中低",
+                        "evidence_sources": [
+                            {"source": "etf_top", "label": "招商中证畜牧养殖ETF", "score": 79.2, "matched_keywords": ["养殖", "畜牧"]},
+                            {"source": "etf_top", "label": "国泰中证畜牧养殖ETF", "score": 78.3, "matched_keywords": ["养殖", "畜牧"]},
+                        ],
+                    }
+                ],
+                "etf_top": [
+                    {"ts_code": "516670.SH", "name": "招商中证畜牧养殖ETF", "amount": 120_000.0, "score": 79.2},
+                    {"ts_code": "159865.SZ", "name": "国泰中证畜牧养殖ETF", "amount": 300_000.0, "score": 78.3},
+                    {"ts_code": "513030.SH", "name": "华安国际龙头(DAX)ETF(QDII)", "amount": 900_000.0, "score": 86.0},
+                ],
+            },
+        }
+
+        representatives = research_representatives(primary_items(payload), payload)
+        by_code = {item["code"]: item for item in representatives}
+
+        self.assertIn("159865.SZ", by_code)
+        self.assertNotIn("516670.SH", by_code)
+        self.assertNotIn("513030.SH", by_code)
+        self.assertEqual(queue_source_for_item(by_code["159865.SZ"]), QUEUE_SOURCE_SECONDARY)
+        self.assertEqual(by_code["159865.SZ"]["secondary_theme_name"], "农业/养殖/猪周期")
+        self.assertIn("二级主题/行业反转研究口径", build_research_prompt(by_code["159865.SZ"], report_meta(payload)))
 
     def test_research_prompt_is_single_etf_only(self) -> None:
         report = {"report_id": "r1", "basis_date": "2026-06-24"}

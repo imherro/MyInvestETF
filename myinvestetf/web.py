@@ -1703,6 +1703,11 @@ def is_defensive_leader(row: object) -> bool:
     return leader_model_info(row).get("valuation_model_type") == "factor_defensive"
 
 
+def is_secondary_theme_leader(row: object) -> bool:
+    raw = _raw_map(row)
+    return bool(raw.get("secondary_theme_id")) or str(raw.get("source_path") or "") == "result.etf_top + result.taxonomy_v2_ranking"
+
+
 def render_etf_cards(
     rows: list[object],
     research_by_code: dict[str, object] | None = None,
@@ -1778,8 +1783,11 @@ def render_home() -> bytes:
 
     broad_leaders = [row for row in display_leaders if is_broad_index_leader(row)]
     defensive_leaders = [row for row in display_leaders if is_defensive_leader(row)]
+    secondary_leaders = [row for row in display_leaders if is_secondary_theme_leader(row)]
     mainline_leaders = [
-        row for row in display_leaders if not is_broad_index_leader(row) and not is_defensive_leader(row)
+        row
+        for row in display_leaders
+        if not is_broad_index_leader(row) and not is_defensive_leader(row) and not is_secondary_theme_leader(row)
     ]
     research_by_code: dict[str, object] = {}
     prices_by_code: dict[str, list[object]] = {}
@@ -1801,8 +1809,8 @@ def render_home() -> bytes:
         <div class="page-title-row">
           <div>
             <h1>ETF研究代表</h1>
-            <p class="muted">ETF 池来自 <code>theme_ranking.top_etf</code>、<code>result.etf_top</code>、本地核心宽基种子和收益防御种子。</p>
-            <p class="muted">当前 ETF 池 {esc(len(leaders))} 只；主屏显示 {esc(len(display_leaders))} 只研究代表：核心宽基 {esc(len(broad_leaders))} 只，收益防御 {esc(len(defensive_leaders))} 只，主线代表 {esc(len(mainline_leaders))} 只。</p>
+            <p class="muted">ETF 池来自 <code>theme_ranking.top_etf</code>、<code>result.etf_top</code>、<code>taxonomy_v2_ranking</code>、本地核心宽基种子和收益防御种子。</p>
+            <p class="muted">当前 ETF 池 {esc(len(leaders))} 只；主屏显示 {esc(len(display_leaders))} 只研究代表：核心宽基 {esc(len(broad_leaders))} 只，收益防御 {esc(len(defensive_leaders))} 只，主线代表 {esc(len(mainline_leaders))} 只，二级主题 {esc(len(secondary_leaders))} 只。</p>
           </div>
           <div class="report-box">
             <span>report_id</span>
@@ -1841,6 +1849,16 @@ def render_home() -> bytes:
         <span class="section-count">{esc(len(mainline_leaders))} 只</span>
       </div>
       <div class="etf-grid">{render_etf_cards(mainline_leaders, research_by_code, prices_by_code)}</div>
+    </section>
+    <section class="content representative-section">
+      <div class="section-heading-row">
+        <div>
+          <h2>二级主题/行业反转ETF</h2>
+          <p class="muted">来源为 <code>result.etf_top + taxonomy_v2_ranking</code>，用于养殖、光伏、金融等二级主题的底部反转和轮动观察；同一二级主题只保留成交额最大的代表。</p>
+        </div>
+        <span class="section-count">{esc(len(secondary_leaders))} 只</span>
+      </div>
+      <div class="etf-grid">{render_etf_cards(secondary_leaders, research_by_code, prices_by_code)}</div>
     </section>
     <section class="content section-block">
       <h2>ETF深研队列</h2>
@@ -3248,12 +3266,12 @@ def api_index() -> bytes:
         },
         "source": {
             "upstream_endpoint": LEADER_INDEX_URL,
-            "upstream_result_path": "result.theme_ranking[].top_etf + result.etf_top",
+            "upstream_result_path": "result.theme_ranking[].top_etf + result.etf_top + taxonomy_v2_ranking",
             "compatible_result_path": "key_results.primary_output.items",
             "source_policy": (
-                "default to theme.okbbc.com/api/latest theme_ranking[].top_etf plus result.etf_top; "
-                "/api/index keeps the ETF pool and appends local core broad-index ETF seeds; "
-                "research queue lists independent core broad-index representatives first, then one representative per mainline theme"
+                "default to theme.okbbc.com/api/latest theme_ranking[].top_etf plus result.etf_top and taxonomy_v2_ranking; "
+                "/api/index keeps the ETF pool and appends local core broad-index and defensive ETF seeds; "
+                "research queue lists broad-index, defensive, mainline, then secondary theme reversal representatives"
             ),
         },
         "report": dict(report) if report else None,

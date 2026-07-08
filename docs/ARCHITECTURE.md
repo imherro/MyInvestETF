@@ -50,7 +50,7 @@ flowchart LR
 
 ## 分层
 
-- `myinvestetf/leader_index.py`：ETF 输入解析、投资暴露归类、同类成交额代表筛选、主动研究入队和提示词生成。
+- `myinvestetf/leader_index.py`：ETF 输入解析、投资暴露归类、二级主题/行业反转候选匹配、同类成交额代表筛选、主动研究入队和提示词生成。
 - `myinvestetf/db.py`：SQLite schema、队列状态机和研究记录入库。
 - `myinvestetf/web.py`：只读 Web 页面和 JSON API。
 - `core/schema/etf_report.py`：`ETFResearchReport` 强 schema。

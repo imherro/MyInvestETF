@@ -2,10 +2,11 @@
 
 ## 结构化 ETF 数据
 
-- theme.okbbc.com：可跟踪主线 ETF 默认入口，读取 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf` 和 `result.etf_top`。
+- theme.okbbc.com：可跟踪主线 ETF 默认入口，读取 `https://theme.okbbc.com/api/latest` 的 `result.theme_ranking[].top_etf`、`result.etf_top` 和 `taxonomy_v2_ranking`。
 - 本地核心宽基种子：独立补齐上证综指、上证50、沪深300、中证500、中证1000、创业板、科创50 等宽基 ETF，不从可跟踪主线龙头推导。
 - 本地收益防御种子：纳入 `159201.SZ` 华夏国证自由现金流ETF 和 `512890.SH` 华泰柏瑞中证红利低波动ETF，使用收益防御估值逻辑，不从主线强度推导。
 - 主线入口每条主线至少保留一个 ETF 代表进入研究队列；同一主线内优先选择有成交额且成交额最大的 ETF，缺成交额时使用 `top_etf` 的第一位。
+- 二级主题/行业反转 ETF 从 `result.etf_top + taxonomy_v2_ranking` 匹配，只补充未被主线代表覆盖的二级主题；同一二级主题只保留成交额最大的 ETF，队列来源标记为 `secondary_theme_representative`。
 - 宽基 ETF 按指数类别保留代表进入研究队列，队列来源标记为 `broad_index_representative`。
 - 收益防御 ETF 代表进入研究队列时，队列来源标记为 `defensive_representative`。
 - 主线 ETF 代表进入研究队列时，队列来源标记为 `mainline_representative`。
