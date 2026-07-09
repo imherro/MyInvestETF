@@ -74,6 +74,24 @@ class ETFTaxonomyTests(unittest.TestCase):
         self.assertEqual(profile.etf_type, "theme_lifecycle")
         self.assertEqual(profile.lifecycle_stage, "crowded")
 
+    def test_mainline_gold_equity_theme_is_not_commodity_proxy(self) -> None:
+        profile = classify_etf(
+            {
+                "code": "517520.SH",
+                "name": "永赢中证沪深港黄金产业股票ETF",
+                "valuation_model_type": "mainline_theme",
+                "sleeve_key": "mainline_etf",
+                "product_profile": {
+                    "asset_class": "商品/黄金产业主题",
+                    "portfolio_role": "主线进攻工具",
+                    "tracking_index": "中证沪深港黄金产业股票指数收益率×100%",
+                },
+            }
+        )
+
+        self.assertEqual(profile.etf_type, "theme_lifecycle")
+        self.assertEqual(profile.legacy_valuation_model_type, "mainline_theme")
+
     def test_classification_is_deterministic_and_report_ready(self) -> None:
         item = {"code": "518880.SH", "name": "华安黄金ETF", "theme": "黄金"}
         first = taxonomy_profile_to_dict(classify_etf(item))

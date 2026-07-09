@@ -126,6 +126,10 @@ class ETFClassifier:
             reasons.append("keyword:cash-like instrument")
             return result("cash_equivalent", "cash_like", 0.90)
 
+        if legacy_model == "mainline_theme" and _contains(text, "主线", "主题", "行业主题", "theme_ranking"):
+            reasons.append("legacy:model mainline theme route")
+            return result("theme_lifecycle", "mainline_theme", 0.76)
+
         if _contains(text, "黄金", "白银", "原油", "商品", "贵金属"):
             reasons.append("keyword:commodity exposure")
             return result("commodity_etf", "commodity_proxy", 0.86)
@@ -133,10 +137,6 @@ class ETFClassifier:
         if _contains(text, "债", "国债", "政金债", "信用债", "可转债", "公司债"):
             reasons.append("keyword:bond exposure")
             return result("bond_etf", "bond_duration_based", 0.84)
-
-        if legacy_model == "mainline_theme" and _contains(text, "主线", "主题", "行业主题", "theme_ranking"):
-            reasons.append("legacy:model mainline theme route")
-            return result("theme_lifecycle", "mainline_theme", 0.76)
 
         if _contains(text, "创业板", "创业50", "科创50", "科创板50", "科创100", "科创板100", "中证1000", "成长宽基"):
             reasons.append("keyword:growth broad index")
